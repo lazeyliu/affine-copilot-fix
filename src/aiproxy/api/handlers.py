@@ -361,6 +361,7 @@ def register_routes(app, settings):
             log_event(40, "chat_completions_error", error=str(e), request_id=g.request_id)
             return error_response(str(e), 500, "internal_error")
 
+    @app.route('/responses', methods=['POST'])
     @app.route('/v1/responses', methods=['POST'])
     def responses():
         try:
@@ -619,6 +620,7 @@ def register_routes(app, settings):
             log_event(40, "responses_error", error=str(e), request_id=g.request_id)
             return error_response(str(e), 500, "internal_error")
 
+    @app.route('/models', methods=['GET'])
     @app.route('/v1/models', methods=['GET'])
     def list_models():
         models = get_models_response()
