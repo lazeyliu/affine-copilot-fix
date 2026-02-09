@@ -159,6 +159,8 @@ def register_routes(app, settings):
     def chat_completions():
         try:
             data = request.get_json(silent=True) or {}
+            if "model" not in data and "modelId" in data:
+                data["model"] = data["modelId"]
             try:
                 payload = ChatCompletionsRequest.model_validate(data)
             except ValidationError as e:
@@ -268,6 +270,8 @@ def register_routes(app, settings):
     def responses():
         try:
             data = request.get_json(silent=True) or {}
+            if "model" not in data and "modelId" in data:
+                data["model"] = data["modelId"]
             try:
                 payload = ResponsesRequest.model_validate(data)
             except ValidationError as e:
