@@ -1,0 +1,1439 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AIProxy · API Console</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@2.52.0/dist/full.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --bg-soft: #eceff5;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+        font-size: 12px;
+        color: #11161a;
+        background-color: var(--bg);
+        background-image:
+          radial-gradient(circle at 12% 18%, rgba(90, 124, 156, 0.16), transparent 42%),
+          radial-gradient(circle at 82% 12%, rgba(120, 140, 180, 0.14), transparent 40%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg-soft) 100%),
+          linear-gradient(0deg, rgba(30, 41, 59, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(30, 41, 59, 0.05) 1px, transparent 1px);
+        background-size: auto, auto, auto, 24px 24px, 24px 24px;
+        background-position: 0 0, 0 0, 0 0, center center, center center;
+        min-height: 100vh;
+      }
+
+      .tab-panel.hidden {
+        display: none;
+      }
+
+      .label {
+        padding-top: 0;
+        padding-bottom: 2px;
+        min-height: 20px;
+        align-items: center;
+      }
+
+      .label-text {
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      body[data-theme] {
+        --rounded-box: 3px;
+        --rounded-btn: 3px;
+        --rounded-badge: 3px;
+        --p: 216 18% 46%;
+        --pc: 0 0% 100%;
+        --s: 200 16% 38%;
+        --sc: 0 0% 100%;
+        --a: 210 14% 62%;
+        --ac: 220 13% 18%;
+        --n: 220 14% 18%;
+        --nc: 0 0% 100%;
+        --b1: 0 0% 100%;
+        --b2: 220 25% 97%;
+        --b3: 220 18% 93%;
+        --bc: 220 13% 18%;
+      }
+
+      .card,
+      .btn,
+      .input,
+      .select,
+      .textarea,
+      .tabs-boxed .tab {
+        border-radius: 3px !important;
+      }
+    </style>
+  </head>
+  <body data-theme="light">
+    <div class="mx-auto max-w-7xl px-6 py-8 space-y-6">
+      <header class="space-y-4">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div class="text-3xl font-semibold tracking-tight" data-i18n="title">API Console</div>
+            <div class="mt-2 text-sm text-base-content/70" data-i18n-html="subtitle"></div>
+          </div>
+          <label class="flex items-center gap-2 text-xs text-base-content/70">
+            <span data-i18n="language">Language</span>
+            <select id="langSelect" class="select select-bordered select-xs">
+              <option value="auto" data-i18n="language_auto">Auto</option>
+              <option value="zh-CN">中文</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+        </div>
+        <div class="tabs tabs-boxed w-fit">
+          <button class="tab tab-xs tab-btn tab-active" data-tab="tester" type="button" data-i18n="tab.tester">Console</button>
+          <button class="tab tab-xs tab-btn" data-tab="config" type="button" data-i18n="tab.config">Config Builder</button>
+        </div>
+      </header>
+
+      <div class="card bg-base-100 border border-base-200 shadow-sm">
+        <div class="card-body p-4">
+          <div class="grid gap-4 md:grid-cols-2">
+            <div class="form-control">
+              <label class="label text-xs text-base-content/60">
+                <span class="label-text" data-i18n="label.base_url">Base URL</span>
+              </label>
+              <input id="baseUrl" class="input input-bordered input-xs" placeholder="http://localhost:4000" />
+            </div>
+            <div class="form-control">
+              <label class="label text-xs text-base-content/60">
+                <span class="label-text" data-i18n="label.api_key">API Key (for proxy)</span>
+              </label>
+              <input id="apiKey" class="input input-bordered input-xs" data-i18n-placeholder="placeholder.api_key" placeholder="your inbound key" />
+              <div class="mt-1 text-xs text-base-content/60" data-i18n="hint.api_key"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-tab-panel="tester">
+        <div class="grid gap-4 lg:grid-cols-12">
+          <section class="card bg-base-100 border border-base-200 shadow-sm lg:col-span-3">
+            <div class="card-body p-4 space-y-3">
+              <div class="form-control">
+                <label class="label text-xs text-base-content/60">
+                  <span class="label-text" data-i18n="label.model">Model</span>
+                </label>
+                <select id="modelSelect" class="select select-bordered select-xs"></select>
+              </div>
+              <div class="flex flex-col gap-2">
+                <button class="btn btn-xs btn-secondary" id="loadModels" data-i18n="button.load_models">Load /v1/models</button>
+                <button class="btn btn-xs btn-ghost" id="pingModels" data-i18n="button.test_models">Test /v1/models</button>
+                <div class="text-xs text-base-content/60" id="modelsStatus" data-i18n="status.models_idle">等待加载模型列表。</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="card bg-base-100 border border-base-200 shadow-sm lg:col-span-5 lg:row-span-2">
+            <div class="card-body p-4 space-y-3">
+              <div class="form-control">
+                <label class="label text-xs text-base-content/60">
+                  <span class="label-text" data-i18n="label.prompt">Prompt</span>
+                </label>
+                <textarea id="prompt" class="textarea textarea-bordered textarea-xs"></textarea>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <button class="btn btn-xs btn-primary" id="testChat" data-i18n="button.test_chat">Test /v1/chat/completions</button>
+                <button class="btn btn-xs btn-secondary" id="testResponses" data-i18n="button.test_responses">Test /v1/responses</button>
+                <label class="flex items-center gap-2 text-xs text-base-content/60">
+                  <input class="toggle toggle-xs" id="streamToggle" type="checkbox" />
+                  <span data-i18n="label.stream">Stream response</span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="card bg-base-100 border border-base-200 shadow-sm lg:col-span-4 lg:row-span-2">
+            <div class="card-body p-4 space-y-2">
+              <div class="text-xs font-semibold text-base-content/70" data-i18n="label.output">Output</div>
+              <pre class="min-h-[260px] whitespace-pre-wrap rounded-lg bg-base-200 p-3 text-xs" id="output"></pre>
+              <div class="text-xs text-base-content/60" id="requestMeta"></div>
+            </div>
+          </section>
+
+          <section class="card bg-base-100 border border-base-200 shadow-sm lg:col-span-3">
+            <div class="card-body p-4 space-y-3">
+              <div class="text-xs font-semibold text-base-content/70" data-i18n="history.title">Request History</div>
+              <div class="space-y-2" id="historyList"></div>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-xs btn-ghost" id="clearHistory" data-i18n="history.clear">Clear</button>
+                <button class="btn btn-xs btn-ghost" id="exportHistory" data-i18n="history.export">Export</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="tab-panel hidden" data-tab-panel="config">
+        <div class="grid gap-4">
+          <section class="card bg-base-100 border border-base-200 shadow-sm">
+            <div class="card-body p-4 space-y-6">
+              <div>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="text-xs font-semibold text-base-content/70" data-i18n="config.title">Config Builder</div>
+                  <div class="flex flex-wrap gap-2">
+                    <button class="btn btn-xs btn-secondary" id="generateConfig" data-i18n="button.generate">Generate config.json</button>
+                    <button class="btn btn-xs btn-ghost" id="copyConfig" data-i18n="button.copy">Copy</button>
+                    <button class="btn btn-xs btn-ghost" id="downloadConfig" data-i18n="button.download">Download</button>
+                  </div>
+                </div>
+                <div class="mt-3 grid gap-4 md:grid-cols-4 items-end">
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.server_port">Server Port</span>
+                    </label>
+                    <input id="cfgPort" class="input input-bordered input-xs" type="number" placeholder="4000" />
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.key_mode">Access Key Mode</span>
+                    </label>
+                    <select id="cfgKeyMode" class="select select-bordered select-xs">
+                      <option value="single" data-i18n="config.key_mode_single">Single Key</option>
+                      <option value="map" data-i18n="config.key_mode_map">Key Map</option>
+                    </select>
+                  </div>
+                  <div class="form-control" id="singleKeyWrap">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.access_key">Access Key</span>
+                    </label>
+                    <input id="cfgAccessKey" class="input input-bordered input-xs" data-i18n-placeholder="placeholder.access_key" placeholder="your-proxy-key" />
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.default_model">Default Model</span>
+                    </label>
+                    <input id="cfgDefaultModel" class="input input-bordered input-xs" data-i18n-placeholder="placeholder.default_model" placeholder="aiproxy-gemini" />
+                  </div>
+                </div>
+              </div>
+
+              <div id="keyMapSection" class="hidden">
+                <div class="text-xs font-semibold text-base-content/70" data-i18n="config.key_map">Key Map</div>
+                <div class="mt-3 space-y-3" id="keyMap"></div>
+                <div class="mt-2">
+                  <button class="btn btn-xs btn-ghost" id="addKeyRule" data-i18n="button.add_key_rule">Add Key Rule</button>
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs font-semibold text-base-content/70" data-i18n="config.providers">Providers</div>
+                <div class="mt-3 space-y-3" id="providers"></div>
+                <div class="mt-2">
+                  <button class="btn btn-xs btn-ghost" id="addProvider" data-i18n="button.add_provider">Add Provider</button>
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs font-semibold text-base-content/70" data-i18n="config.models">Models</div>
+                <div class="mt-3 space-y-3" id="models"></div>
+                <div class="mt-2">
+                  <button class="btn btn-xs btn-ghost" id="addModel" data-i18n="button.add_model">Add Model</button>
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs font-semibold text-base-content/70" data-i18n="config.advanced">Advanced</div>
+                <div class="mt-3 grid gap-4 md:grid-cols-3 items-end">
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.cors_origins">CORS Origins</span>
+                    </label>
+                    <input id="cfgCorsOrigins" class="input input-bordered input-xs" data-i18n-placeholder="placeholder.cors_origins" placeholder="https://example.com, http://localhost:3000" />
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.cors_credentials">CORS Credentials</span>
+                    </label>
+                    <select id="cfgCorsCreds" class="select select-bordered select-xs">
+                      <option value="false" data-i18n="config.cors_no">Disabled</option>
+                      <option value="true" data-i18n="config.cors_yes">Enabled</option>
+                    </select>
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.rate_limit">Rate Limit</span>
+                    </label>
+                    <select id="cfgRateLimitEnabled" class="select select-bordered select-xs">
+                      <option value="false" data-i18n="config.rate_limit_off">Disabled</option>
+                      <option value="true" data-i18n="config.rate_limit_on">Enabled</option>
+                    </select>
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.rate_limit_requests">Requests</span>
+                    </label>
+                    <input id="cfgRateLimitRequests" class="input input-bordered input-xs" type="number" placeholder="60" />
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.rate_limit_window">Window (seconds)</span>
+                    </label>
+                    <input id="cfgRateLimitWindow" class="input input-bordered input-xs" type="number" placeholder="60" />
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.log_sample">Log Sample Rate</span>
+                    </label>
+                    <input id="cfgLogSample" class="input input-bordered input-xs" type="number" step="0.01" min="0" max="1" placeholder="1.0" />
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.log_headers">Log Headers</span>
+                    </label>
+                    <select id="cfgLogHeaders" class="select select-bordered select-xs">
+                      <option value="false" data-i18n="config.log_no">Disabled</option>
+                      <option value="true" data-i18n="config.log_yes">Enabled</option>
+                    </select>
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.log_body">Log Body</span>
+                    </label>
+                    <select id="cfgLogBody" class="select select-bordered select-xs">
+                      <option value="false" data-i18n="config.log_no">Disabled</option>
+                      <option value="true" data-i18n="config.log_yes">Enabled</option>
+                    </select>
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.log_redact_headers">Redact Headers</span>
+                    </label>
+                    <input id="cfgLogRedactHeaders" class="input input-bordered input-xs" data-i18n-placeholder="placeholder.log_redact_headers" placeholder="authorization, x-api-key" />
+                  </div>
+                  <div class="form-control">
+                    <label class="label text-xs text-base-content/60">
+                      <span class="label-text" data-i18n="config.log_redact_keys">Redact JSON Keys</span>
+                    </label>
+                    <input id="cfgLogRedactKeys" class="input input-bordered input-xs" data-i18n-placeholder="placeholder.log_redact_keys" placeholder="api_key, apiKey, access_keys" />
+                  </div>
+                </div>
+              </div>
+
+              <textarea class="textarea textarea-bordered textarea-xs font-mono" id="configOutput" readonly></textarea>
+              <div>
+                <div class="text-xs font-semibold text-base-content/70" data-i18n="validation.title">Config Validation</div>
+                <div class="mt-3 space-y-2" id="configValidation"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+<script>
+      // Lightweight i18n + test/config UI. No build step required.
+      const baseUrlInput = document.getElementById("baseUrl");
+      const apiKeyInput = document.getElementById("apiKey");
+      const modelSelect = document.getElementById("modelSelect");
+      const output = document.getElementById("output");
+      const modelsStatus = document.getElementById("modelsStatus");
+      const requestMeta = document.getElementById("requestMeta");
+      const historyList = document.getElementById("historyList");
+      const configValidation = document.getElementById("configValidation");
+      const providersContainer = document.getElementById("providers");
+      const modelsContainer = document.getElementById("models");
+      const configOutput = document.getElementById("configOutput");
+      const keyModeSelect = document.getElementById("cfgKeyMode");
+      const singleKeyWrap = document.getElementById("singleKeyWrap");
+      const keyMapSection = document.getElementById("keyMapSection");
+      const keyMapContainer = document.getElementById("keyMap");
+      const langSelect = document.getElementById("langSelect");
+      const promptInput = document.getElementById("prompt");
+      const streamToggle = document.getElementById("streamToggle");
+      const corsOriginsInput = document.getElementById("cfgCorsOrigins");
+      const corsCredsSelect = document.getElementById("cfgCorsCreds");
+      const rateLimitEnabledSelect = document.getElementById("cfgRateLimitEnabled");
+      const rateLimitRequestsInput = document.getElementById("cfgRateLimitRequests");
+      const rateLimitWindowInput = document.getElementById("cfgRateLimitWindow");
+      const logSampleInput = document.getElementById("cfgLogSample");
+      const logHeadersSelect = document.getElementById("cfgLogHeaders");
+      const logBodySelect = document.getElementById("cfgLogBody");
+      const logRedactHeadersInput = document.getElementById("cfgLogRedactHeaders");
+      const logRedactKeysInput = document.getElementById("cfgLogRedactKeys");
+      const tabButtons = document.querySelectorAll(".tab-btn");
+      const tabPanels = document.querySelectorAll("[data-tab-panel]");
+
+      function setActiveTab(tabId) {
+        tabButtons.forEach((btn) => {
+          btn.classList.toggle("tab-active", btn.dataset.tab === tabId);
+        });
+        tabPanels.forEach((panel) => {
+          panel.classList.toggle("hidden", panel.dataset.tabPanel !== tabId);
+        });
+        localStorage.setItem("aiproxy.tab", tabId);
+      }
+
+      tabButtons.forEach((btn) => {
+        btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+      });
+
+      setActiveTab(localStorage.getItem("aiproxy.tab") || "tester");
+
+      // Translation dictionary (extend as needed).
+      const I18N = {
+        "zh-CN": {
+          title: "API 面板",
+          language: "语言",
+          language_auto: "自动",
+          subtitle:
+            "快速测试 <span class=\"chip\">/v1/models</span>、<span class=\"chip\">/v1/chat/completions</span>、<span class=\"chip\">/v1/responses</span> 是否正常。",
+          "label.base_url": "Base URL",
+          "label.api_key": "API Key (for proxy)",
+          "label.model": "模型",
+          "label.prompt": "提示词",
+          "label.output": "输出",
+          "label.stream": "流式输出",
+          "hint.api_key": "仅用于测试请求，页面本身不需要密钥。",
+          "button.load_models": "加载 /v1/models",
+          "button.test_models": "测试 /v1/models",
+          "button.test_chat": "测试 /v1/chat/completions",
+          "button.test_responses": "测试 /v1/responses",
+          "status.models_idle": "等待加载模型列表。",
+          "status.models_loading": "加载中...",
+          "status.models_failed": "加载失败",
+          "status.models_loaded": "已加载 {count} 个模型",
+          "status.models_result": "返回 {status}",
+          "status.key_required": "请先填写 API Key 后再测试接口。",
+          "status.key_required_short": "需要 API Key",
+          "status.request_meta": "状态 {status} · {ms}ms",
+          "tab.tester": "API 面板",
+          "tab.config": "配置生成",
+          "history.title": "请求历史",
+          "history.clear": "清空",
+          "history.export": "导出",
+          "history.empty": "暂无记录",
+          "history.view": "查看",
+          "history.request": "请求参数",
+          "history.response": "响应内容",
+          "validation.title": "配置校验",
+          "validation.ok": "未发现明显问题",
+          "validation.providers_missing": "providers 必须至少配置一个供应商",
+          "validation.models_missing": "models 必须至少配置一个模型",
+          "validation.default_missing": "defaults.model 不存在于 models 中",
+          "validation.model_provider_missing": "模型 {id} 指向的 provider 不存在",
+          "validation.model_missing_fields": "模型 {id} 缺少必填字段",
+          "validation.access_keys_model": "access_keys 引用了不存在的模型：{id}",
+          "validation.rate_limit": "限流参数无效（必须为正数）",
+          "config.title": "配置生成器",
+          "config.server_port": "服务端口",
+          "config.key_mode": "访问密钥模式",
+          "config.key_mode_single": "单一密钥",
+          "config.key_mode_map": "密钥映射",
+          "config.access_key": "访问密钥",
+          "config.default_model": "默认模型",
+          "config.key_map": "密钥映射",
+          "config.providers": "供应商",
+          "config.models": "模型",
+          "config.advanced": "高级配置",
+          "config.cors_origins": "CORS Origins",
+          "config.cors_credentials": "CORS 凭据",
+          "config.cors_no": "关闭",
+          "config.cors_yes": "开启",
+          "config.rate_limit": "限流",
+          "config.rate_limit_off": "关闭",
+          "config.rate_limit_on": "开启",
+          "config.rate_limit_requests": "请求数",
+          "config.rate_limit_window": "窗口（秒）",
+          "config.log_sample": "日志采样率",
+          "config.log_headers": "记录头部",
+          "config.log_body": "记录请求体",
+          "config.log_no": "关闭",
+          "config.log_yes": "开启",
+          "config.log_redact_headers": "脱敏头部",
+          "config.log_redact_keys": "脱敏字段",
+          "config.provider_name": "供应商名称",
+          "config.provider_key": "供应商 Key",
+          "config.model_id": "模型 ID",
+          "config.model_provider": "供应商",
+          "config.model_target": "供应商模型",
+          "config.key_models": "允许模型",
+          "button.add_key_rule": "添加密钥规则",
+          "button.add_provider": "添加供应商",
+          "button.add_model": "添加模型",
+          "button.remove": "移除",
+          "button.generate": "生成 config.json",
+          "button.copy": "复制",
+          "button.download": "下载",
+          "placeholder.api_key": "你的访问密钥",
+          "placeholder.access_key": "你的访问密钥",
+          "placeholder.default_model": "aiproxy-gemini",
+          "placeholder.key_models": "模型A, 模型B（可选）",
+          "placeholder.cors_origins": "https://example.com, http://localhost:3000, *",
+          "placeholder.log_redact_headers": "authorization, x-api-key",
+          "placeholder.log_redact_keys": "api_key, apiKey, access_keys",
+          "placeholder.provider_name": "gemini",
+          "placeholder.provider_key": "YOUR_KEY",
+          "placeholder.base_url": "https://...",
+          "placeholder.model_id": "aiproxy-gemini",
+          "placeholder.model_target": "gemini-2.0-flash",
+          "placeholder.prompt": "用一句话总结今日计划。",
+          "output.ready": "准备就绪。",
+          "output.loading_models": "加载 /v1/models ...",
+          "output.testing_models": "测试 /v1/models ...",
+          "output.testing_chat": "请求 /v1/chat/completions ...",
+          "output.testing_responses": "请求 /v1/responses ...",
+        },
+        en: {
+          title: "API Console",
+          language: "Language",
+          language_auto: "Auto",
+          subtitle:
+            "Quickly test <span class=\"chip\">/v1/models</span>, <span class=\"chip\">/v1/chat/completions</span>, and <span class=\"chip\">/v1/responses</span>.",
+          "label.base_url": "Base URL",
+          "label.api_key": "API Key (for proxy)",
+          "label.model": "Model",
+          "label.prompt": "Prompt",
+          "label.output": "Output",
+          "label.stream": "Stream response",
+          "hint.api_key": "Used only for test requests. The page itself needs no key.",
+          "button.load_models": "Load /v1/models",
+          "button.test_models": "Test /v1/models",
+          "button.test_chat": "Test /v1/chat/completions",
+          "button.test_responses": "Test /v1/responses",
+          "status.models_idle": "Ready to load models.",
+          "status.models_loading": "Loading...",
+          "status.models_failed": "Load failed",
+          "status.models_loaded": "Loaded {count} models",
+          "status.models_result": "Status {status}",
+          "status.key_required": "Please fill in the API key before testing.",
+          "status.key_required_short": "API key required",
+          "status.request_meta": "Status {status} · {ms}ms",
+          "tab.tester": "API Console",
+          "tab.config": "Config Builder",
+          "history.title": "Request History",
+          "history.clear": "Clear",
+          "history.export": "Export",
+          "history.empty": "No history yet",
+          "history.view": "View",
+          "history.request": "Request",
+          "history.response": "Response",
+          "validation.title": "Config Validation",
+          "validation.ok": "No obvious issues found",
+          "validation.providers_missing": "providers must include at least one provider",
+          "validation.models_missing": "models must include at least one model",
+          "validation.default_missing": "defaults.model is not found in models",
+          "validation.model_provider_missing": "Model {id} points to missing provider",
+          "validation.model_missing_fields": "Model {id} is missing required fields",
+          "validation.access_keys_model": "access_keys references unknown model: {id}",
+          "validation.rate_limit": "rate_limit values must be positive numbers",
+          "config.title": "Config Builder",
+          "config.server_port": "Server Port",
+          "config.key_mode": "Access Key Mode",
+          "config.key_mode_single": "Single Key",
+          "config.key_mode_map": "Key Map",
+          "config.access_key": "Access Key",
+          "config.default_model": "Default Model",
+          "config.key_map": "Key Map",
+          "config.providers": "Providers",
+          "config.models": "Models",
+          "config.advanced": "Advanced",
+          "config.cors_origins": "CORS Origins",
+          "config.cors_credentials": "CORS Credentials",
+          "config.cors_no": "Disabled",
+          "config.cors_yes": "Enabled",
+          "config.rate_limit": "Rate Limit",
+          "config.rate_limit_off": "Disabled",
+          "config.rate_limit_on": "Enabled",
+          "config.rate_limit_requests": "Requests",
+          "config.rate_limit_window": "Window (seconds)",
+          "config.log_sample": "Log Sample Rate",
+          "config.log_headers": "Log Headers",
+          "config.log_body": "Log Body",
+          "config.log_no": "Disabled",
+          "config.log_yes": "Enabled",
+          "config.log_redact_headers": "Redact Headers",
+          "config.log_redact_keys": "Redact JSON Keys",
+          "config.provider_name": "Provider Name",
+          "config.provider_key": "Provider API Key",
+          "config.model_id": "Model ID",
+          "config.model_provider": "Provider",
+          "config.model_target": "Provider Model",
+          "config.key_models": "Allowed Models",
+          "button.add_key_rule": "Add Key Rule",
+          "button.add_provider": "Add Provider",
+          "button.add_model": "Add Model",
+          "button.remove": "Remove",
+          "button.generate": "Generate config.json",
+          "button.copy": "Copy",
+          "button.download": "Download",
+          "placeholder.api_key": "your inbound key",
+          "placeholder.access_key": "your-proxy-key",
+          "placeholder.default_model": "aiproxy-gemini",
+          "placeholder.key_models": "model-a, model-b (optional)",
+          "placeholder.cors_origins": "https://example.com, http://localhost:3000, *",
+          "placeholder.log_redact_headers": "authorization, x-api-key",
+          "placeholder.log_redact_keys": "api_key, apiKey, access_keys",
+          "placeholder.provider_name": "gemini",
+          "placeholder.provider_key": "YOUR_KEY",
+          "placeholder.base_url": "https://...",
+          "placeholder.model_id": "aiproxy-gemini",
+          "placeholder.model_target": "gemini-2.0-flash",
+          "placeholder.prompt": "Summarize today's plan in one sentence.",
+          "output.ready": "Ready.",
+          "output.loading_models": "Loading /v1/models ...",
+          "output.testing_models": "Testing /v1/models ...",
+          "output.testing_chat": "Requesting /v1/chat/completions ...",
+          "output.testing_responses": "Requesting /v1/responses ...",
+        },
+      };
+
+      let activeLang = "en";
+      let promptDefault = "";
+      let outputDefault = "";
+      let lastMeta = { status: null, ms: null };
+      let lastValidationWarnings = [];
+
+      baseUrlInput.value = window.location.origin || "http://localhost:4000";
+
+      // Persist language choice; fallback to browser language.
+      function getStoredLang() {
+        return localStorage.getItem("aiproxy.lang") || "auto";
+      }
+
+      function detectLang() {
+        const stored = getStoredLang();
+        if (stored !== "auto") {
+          return stored;
+        }
+        const browserLang = (navigator.language || "en").toLowerCase();
+        return browserLang.startsWith("zh") ? "zh-CN" : "en";
+      }
+
+      // Lookup translated strings with simple token replacement.
+      function t(key, params = {}) {
+        const dict = I18N[activeLang] || I18N.en;
+        let text = dict[key] || I18N.en[key] || key;
+        Object.keys(params).forEach((param) => {
+          text = text.replace(new RegExp(`\\{${param}\\}`, "g"), params[param]);
+        });
+        return text;
+      }
+
+      // Apply translations to all marked nodes and placeholders.
+      function applyI18n() {
+        document.querySelectorAll("[data-i18n]").forEach((node) => {
+          node.textContent = t(node.getAttribute("data-i18n"));
+        });
+        document.querySelectorAll("[data-i18n-html]").forEach((node) => {
+          node.innerHTML = t(node.getAttribute("data-i18n-html"));
+        });
+        document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+          node.setAttribute(
+            "placeholder",
+            t(node.getAttribute("data-i18n-placeholder"))
+          );
+        });
+        const newPromptDefault = t("placeholder.prompt");
+        if (!promptInput.value || promptInput.value === promptDefault) {
+          promptInput.value = newPromptDefault;
+        }
+        promptDefault = newPromptDefault;
+        const newOutputDefault = t("output.ready");
+        if (!output.textContent.trim() || output.textContent === outputDefault) {
+          output.textContent = newOutputDefault;
+        }
+        outputDefault = newOutputDefault;
+        if (lastMeta.status !== null) {
+          requestMeta.textContent = t("status.request_meta", lastMeta);
+        }
+        renderHistory();
+        renderValidation(lastValidationWarnings);
+      }
+
+      // Render test response output.
+      function setOutput(payload) {
+        if (typeof payload === "string") {
+          output.textContent = payload;
+          return;
+        }
+        output.textContent = JSON.stringify(payload, null, 2);
+      }
+
+      function formatPayload(payload) {
+        if (payload === null || payload === undefined) {
+          return "";
+        }
+        if (typeof payload === "string") {
+          return payload;
+        }
+        return JSON.stringify(payload, null, 2);
+      }
+
+      function setRequestMeta(status, ms) {
+        if (status === undefined || ms === undefined) {
+          requestMeta.textContent = "";
+          lastMeta = { status: null, ms: null };
+          return;
+        }
+        lastMeta = { status, ms };
+        requestMeta.textContent = t("status.request_meta", { status, ms });
+      }
+
+      function loadHistory() {
+        try {
+          const stored = JSON.parse(localStorage.getItem("aiproxy.history") || "[]");
+          return Array.isArray(stored) ? stored : [];
+        } catch (error) {
+          return [];
+        }
+      }
+
+      let requestHistory = loadHistory();
+
+      function saveHistory() {
+        localStorage.setItem("aiproxy.history", JSON.stringify(requestHistory));
+      }
+
+      function addHistory(entry) {
+        requestHistory.unshift(entry);
+        requestHistory = requestHistory.slice(0, 20);
+        saveHistory();
+        renderHistory();
+      }
+
+      function renderHistory() {
+        historyList.innerHTML = "";
+        if (!requestHistory.length) {
+          const empty = document.createElement("div");
+          empty.className = "text-xs text-base-content/60";
+          empty.textContent = t("history.empty");
+          historyList.appendChild(empty);
+          return;
+        }
+        requestHistory.forEach((item) => {
+          const row = document.createElement("details");
+          row.className = "collapse collapse-arrow border border-base-200 bg-base-100";
+          const summary = document.createElement("summary");
+          summary.className = "collapse-title text-xs font-semibold flex justify-between gap-2";
+          const summaryMain = document.createElement("span");
+          summaryMain.className = "text-base-content";
+          summaryMain.innerHTML = `<strong>${item.endpoint}</strong> · ${item.status} · ${item.ms}ms`;
+          const summaryMeta = document.createElement("span");
+          summaryMeta.className = "text-xs text-base-content/60";
+          summaryMeta.textContent = new Date(item.ts).toLocaleString();
+          summary.appendChild(summaryMain);
+          summary.appendChild(summaryMeta);
+          summary.addEventListener("click", () => {
+            setOutput(item.response);
+            setRequestMeta(item.status, item.ms);
+          });
+          const detail = document.createElement("div");
+          detail.className = "collapse-content space-y-2";
+          const requestLabel = document.createElement("div");
+          requestLabel.className = "text-[11px] uppercase tracking-wide text-base-content/60";
+          requestLabel.textContent = t("history.request");
+          const requestPre = document.createElement("pre");
+          requestPre.className = "rounded-lg bg-base-200 p-3 text-xs whitespace-pre-wrap";
+          requestPre.textContent = formatPayload(item.request || "-");
+          const responseLabel = document.createElement("div");
+          responseLabel.className = "text-[11px] uppercase tracking-wide text-base-content/60";
+          responseLabel.textContent = t("history.response");
+          const responsePre = document.createElement("pre");
+          responsePre.className = "rounded-lg bg-base-200 p-3 text-xs whitespace-pre-wrap";
+          responsePre.textContent = formatPayload(item.response || "-");
+          detail.appendChild(requestLabel);
+          detail.appendChild(requestPre);
+          detail.appendChild(responseLabel);
+          detail.appendChild(responsePre);
+          row.appendChild(summary);
+          row.appendChild(detail);
+          historyList.appendChild(row);
+        });
+      }
+
+      function renderValidation(messages) {
+        configValidation.innerHTML = "";
+        lastValidationWarnings = messages;
+        if (!messages.length) {
+          const item = document.createElement("div");
+          item.className = "alert alert-success text-xs";
+          item.textContent = t("validation.ok");
+          configValidation.appendChild(item);
+          return;
+        }
+        messages.forEach((msg) => {
+          const item = document.createElement("div");
+          item.className = "alert alert-warning text-xs";
+          item.textContent = msg;
+          configValidation.appendChild(item);
+        });
+      }
+
+      function validateConfig(config) {
+        const warnings = [];
+        const providers = config.providers || {};
+        const models = config.models || [];
+        if (!Object.keys(providers).length) {
+          warnings.push(t("validation.providers_missing"));
+        }
+        if (!models.length) {
+          warnings.push(t("validation.models_missing"));
+        }
+        const modelIds = new Set(models.map((m) => m.id));
+        models.forEach((model) => {
+          if (!model.id || !model.provider || !model.model) {
+            warnings.push(t("validation.model_missing_fields", { id: model.id || "?" }));
+            return;
+          }
+          if (!providers[model.provider]) {
+            warnings.push(t("validation.model_provider_missing", { id: model.id }));
+          }
+        });
+        const defaultModel = config.defaults?.model;
+        if (defaultModel && !modelIds.has(defaultModel)) {
+          warnings.push(t("validation.default_missing"));
+        }
+        const accessKeys = config.access_keys;
+        if (accessKeys && typeof accessKeys === "object" && !Array.isArray(accessKeys)) {
+          Object.values(accessKeys).forEach((entry) => {
+            const allowed = entry?.models;
+            if (Array.isArray(allowed)) {
+              allowed.forEach((id) => {
+                if (!modelIds.has(id)) {
+                  warnings.push(t("validation.access_keys_model", { id }));
+                }
+              });
+            }
+          });
+        }
+        if (config.rate_limit) {
+          const { requests, window_seconds: windowSeconds } = config.rate_limit;
+          if (!requests || !windowSeconds || requests <= 0 || windowSeconds <= 0) {
+            warnings.push(t("validation.rate_limit"));
+          }
+        }
+        return warnings;
+      }
+
+      // Build auth headers for test requests.
+      function buildHeaders() {
+        const headers = { "Content-Type": "application/json" };
+        const key = apiKeyInput.value.trim();
+        if (key) {
+          headers["Authorization"] = `Bearer ${key}`;
+        }
+        return headers;
+      }
+
+      // Prevent sending test requests without a key when access_keys is enabled.
+      function ensureApiKey() {
+        const key = apiKeyInput.value.trim();
+        if (key) {
+          return true;
+        }
+        modelsStatus.textContent = t("status.key_required_short");
+        setOutput(t("status.key_required"));
+        setRequestMeta();
+        apiKeyInput.focus();
+        return false;
+      }
+
+      // Helper to call the proxy API and parse JSON safely.
+      async function fetchJson(path, options = {}) {
+        const baseUrl = baseUrlInput.value.trim().replace(/\/$/, "");
+        const start = performance.now();
+        const response = await fetch(`${baseUrl}${path}`, options);
+        const data = await response.json().catch(() => ({}));
+        const elapsedMs = Math.round(performance.now() - start);
+        setRequestMeta(response.status, elapsedMs);
+        return { response, data, elapsedMs };
+      }
+
+      // Stream SSE response and render incremental text output.
+      async function streamSse(path, body, endpointName) {
+        const baseUrl = baseUrlInput.value.trim().replace(/\/$/, "");
+        const start = performance.now();
+        const response = await fetch(`${baseUrl}${path}`, {
+          method: "POST",
+          headers: buildHeaders(),
+          body: JSON.stringify({ ...body, stream: true }),
+        });
+
+        if (!response.ok || !response.body) {
+          const data = await response.json().catch(() => ({}));
+          const elapsedMs = Math.round(performance.now() - start);
+          setRequestMeta(response.status, elapsedMs);
+          setOutput(data);
+          addHistory({
+            ts: Date.now(),
+            endpoint: endpointName,
+            status: response.status,
+            ms: elapsedMs,
+            request: body,
+            response: data,
+          });
+          return;
+        }
+
+        setOutput("");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let content = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+          for (const part of parts) {
+            const line = part.split("\n").find((item) => item.startsWith("data:"));
+            if (!line) {
+              continue;
+            }
+            const data = line.replace(/^data:\s*/, "").trim();
+            if (data === "[DONE]") {
+              continue;
+            }
+            try {
+              const payload = JSON.parse(data);
+              if (payload.error) {
+                setOutput(payload);
+                continue;
+              }
+              const responseDelta = payload.delta;
+              const responseText = payload.text;
+              const chatDelta = payload.choices?.[0]?.delta?.content;
+              const delta = responseDelta || chatDelta;
+              if (delta) {
+                content += delta;
+                setOutput(content);
+              } else if (responseText) {
+                content = responseText;
+                setOutput(content);
+              }
+            } catch (error) {
+              // Ignore partial JSON chunks.
+            }
+          }
+        }
+        const elapsedMs = Math.round(performance.now() - start);
+        setRequestMeta(response.status, elapsedMs);
+        addHistory({
+          ts: Date.now(),
+          endpoint: endpointName,
+          status: response.status,
+          ms: elapsedMs,
+          request: body,
+          response: content,
+        });
+      }
+
+      // Load /v1/models and populate the model dropdown.
+      async function loadModels() {
+        if (!ensureApiKey()) {
+          return;
+        }
+        modelsStatus.textContent = t("status.models_loading");
+        setOutput(t("output.loading_models"));
+        try {
+          const { response, data } = await fetchJson("/v1/models", {
+            method: "GET",
+            headers: buildHeaders(),
+          });
+          if (!response.ok) {
+            modelsStatus.textContent = `${t("status.models_failed")} (${response.status})`;
+            setOutput(data);
+            return;
+          }
+          const models = data.data || [];
+          modelSelect.innerHTML = "";
+          models.forEach((model) => {
+            const option = document.createElement("option");
+            option.value = model.id;
+            option.textContent = model.id;
+            modelSelect.appendChild(option);
+          });
+          modelsStatus.textContent = t("status.models_loaded", { count: models.length });
+          setOutput(data);
+        } catch (error) {
+          modelsStatus.textContent = t("status.models_failed");
+          setOutput({ error: error.message || String(error) });
+        }
+      }
+
+      // Call /v1/models and print raw output.
+      async function testModels() {
+        if (!ensureApiKey()) {
+          return;
+        }
+        modelsStatus.textContent = t("status.models_loading");
+        setOutput(t("output.testing_models"));
+        const { response, data } = await fetchJson("/v1/models", {
+          method: "GET",
+          headers: buildHeaders(),
+        });
+        modelsStatus.textContent = t("status.models_result", { status: response.status });
+        setOutput(data);
+        addHistory({
+          ts: Date.now(),
+          endpoint: "/v1/models",
+          status: response.status,
+          ms: lastMeta.ms ?? 0,
+          request: null,
+          response: data,
+        });
+      }
+
+      // Call /v1/chat/completions with the current prompt.
+      async function testChat() {
+        if (!ensureApiKey()) {
+          return;
+        }
+        setOutput(t("output.testing_chat"));
+        const prompt = document.getElementById("prompt").value.trim();
+        const model = modelSelect.value || undefined;
+        const body = {
+          model,
+          messages: [{ role: "user", content: prompt }],
+          stream: false,
+        };
+        if (streamToggle.checked) {
+          await streamSse("/v1/chat/completions", body, "/v1/chat/completions");
+          return;
+        }
+        const { response, data } = await fetchJson("/v1/chat/completions", {
+          method: "POST",
+          headers: buildHeaders(),
+          body: JSON.stringify(body),
+        });
+        setOutput({ status: response.status, data });
+        addHistory({
+          ts: Date.now(),
+          endpoint: "/v1/chat/completions",
+          status: response.status,
+          ms: lastMeta.ms ?? 0,
+          request: body,
+          response: data,
+        });
+      }
+
+      // Call /v1/responses with the current prompt.
+      async function testResponses() {
+        if (!ensureApiKey()) {
+          return;
+        }
+        setOutput(t("output.testing_responses"));
+        const prompt = document.getElementById("prompt").value.trim();
+        const model = modelSelect.value || undefined;
+        const body = {
+          model,
+          input: prompt,
+          stream: false,
+        };
+        if (streamToggle.checked) {
+          await streamSse("/v1/responses", body, "/v1/responses");
+          return;
+        }
+        const { response, data } = await fetchJson("/v1/responses", {
+          method: "POST",
+          headers: buildHeaders(),
+          body: JSON.stringify(body),
+        });
+        setOutput({ status: response.status, data });
+        addHistory({
+          ts: Date.now(),
+          endpoint: "/v1/responses",
+          status: response.status,
+          ms: lastMeta.ms ?? 0,
+          request: body,
+          response: data,
+        });
+      }
+
+      document.getElementById("loadModels").addEventListener("click", loadModels);
+      document.getElementById("pingModels").addEventListener("click", testModels);
+      document.getElementById("testChat").addEventListener("click", testChat);
+      document.getElementById("testResponses").addEventListener("click", testResponses);
+      document.getElementById("clearHistory").addEventListener("click", () => {
+        requestHistory = [];
+        saveHistory();
+        renderHistory();
+      });
+      document.getElementById("exportHistory").addEventListener("click", () => {
+        const blob = new Blob([JSON.stringify(requestHistory, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "aiproxy-history.json";
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+      });
+
+      // UI row for provider config.
+      function createProviderRow(values = {}) {
+        const row = document.createElement("div");
+        row.className = "grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] items-end provider-row";
+        row.innerHTML = `
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="config.provider_name">Provider Name</span>
+            </label>
+            <input class="provider-name input input-bordered input-xs" data-i18n-placeholder="placeholder.provider_name" placeholder="gemini" value="${values.name || ""}" />
+          </div>
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="label.base_url">Base URL</span>
+            </label>
+            <input class="provider-url input input-bordered input-xs" data-i18n-placeholder="placeholder.base_url" placeholder="https://..." value="${values.base_url || ""}" />
+          </div>
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="config.provider_key">API Key</span>
+            </label>
+            <input class="provider-key input input-bordered input-xs" data-i18n-placeholder="placeholder.provider_key" placeholder="YOUR_KEY" value="${values.api_key || ""}" />
+          </div>
+          <div class="flex md:justify-end">
+            <button class="btn btn-xs btn-ghost remove-provider" data-i18n="button.remove">Remove</button>
+          </div>
+        `;
+        row.querySelector(".remove-provider").addEventListener("click", () => {
+          row.remove();
+          refreshProviderOptions();
+        });
+        row.querySelector(".provider-name").addEventListener("input", refreshProviderOptions);
+        return row;
+      }
+
+      // UI row for model mapping.
+      function createModelRow(values = {}) {
+        const row = document.createElement("div");
+        row.className = "grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] items-end model-row";
+        row.innerHTML = `
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="config.model_id">Model ID</span>
+            </label>
+            <input class="model-id input input-bordered input-xs" data-i18n-placeholder="placeholder.model_id" placeholder="aiproxy-gemini" value="${values.id || ""}" />
+          </div>
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="config.model_provider">Provider</span>
+            </label>
+            <select class="model-provider select select-bordered select-xs"></select>
+          </div>
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="config.model_target">Provider Model</span>
+            </label>
+            <input class="model-target input input-bordered input-xs" data-i18n-placeholder="placeholder.model_target" placeholder="gemini-2.0-flash" value="${values.model || ""}" />
+          </div>
+          <div class="flex md:justify-end">
+            <button class="btn btn-xs btn-ghost remove-model" data-i18n="button.remove">Remove</button>
+          </div>
+        `;
+        row.querySelector(".remove-model").addEventListener("click", () => row.remove());
+        modelsContainer.appendChild(row);
+        refreshProviderOptions();
+        if (values.provider) {
+          row.querySelector(".model-provider").value = values.provider;
+        }
+        applyI18n();
+      }
+
+      // Sync provider options in model rows.
+      function refreshProviderOptions() {
+        const providerNames = Array.from(document.querySelectorAll(".provider-row .provider-name"))
+          .map((input) => input.value.trim())
+          .filter(Boolean);
+        document.querySelectorAll(".model-row .model-provider").forEach((select) => {
+          const current = select.value;
+          select.innerHTML = "";
+          providerNames.forEach((name) => {
+            const option = document.createElement("option");
+            option.value = name;
+            option.textContent = name;
+            select.appendChild(option);
+          });
+          if (current && providerNames.includes(current)) {
+            select.value = current;
+          }
+        });
+      }
+
+      // Collect providers from the UI.
+      function collectProviders() {
+        const providers = {};
+        document.querySelectorAll(".provider-row").forEach((row) => {
+          const name = row.querySelector(".provider-name").value.trim();
+          const baseUrl = row.querySelector(".provider-url").value.trim();
+          const apiKey = row.querySelector(".provider-key").value.trim();
+          if (!name || !baseUrl || !apiKey) {
+            return;
+          }
+          providers[name] = {
+            base_url: baseUrl,
+            api_key: apiKey,
+          };
+        });
+        return providers;
+      }
+
+      // Collect model mappings from the UI.
+      function collectModels() {
+        const models = [];
+        document.querySelectorAll(".model-row").forEach((row) => {
+          const id = row.querySelector(".model-id").value.trim();
+          const provider = row.querySelector(".model-provider").value.trim();
+          const target = row.querySelector(".model-target").value.trim();
+          if (!id || !provider || !target) {
+            return;
+          }
+          models.push({
+            id,
+            provider,
+            model: target,
+            owned_by: "openai",
+            permission: [],
+            root: id,
+            parent: null,
+          });
+        });
+        return models;
+      }
+
+      // Collect access_keys in single or map mode.
+      function collectAccessKeys(models) {
+        const mode = keyModeSelect.value;
+        if (mode === "single") {
+          const accessKey = document.getElementById("cfgAccessKey").value.trim();
+          return accessKey || null;
+        }
+
+        const map = {};
+        document.querySelectorAll(".key-row").forEach((row) => {
+          const key = row.querySelector(".key-value").value.trim();
+          const rawModels = row.querySelector(".key-models").value.trim();
+          if (!key) {
+            return;
+          }
+          const allowedModels = rawModels
+            ? rawModels.split(",").map((item) => item.trim()).filter((item) => item)
+            : [];
+          if (allowedModels.length) {
+            map[key] = { models: allowedModels };
+          } else {
+            map[key] = {};
+          }
+        });
+        return Object.keys(map).length ? map : null;
+      }
+
+      // Build config.json from the current UI state.
+      function generateConfig() {
+        const portValue = document.getElementById("cfgPort").value.trim();
+        const defaultModel = document.getElementById("cfgDefaultModel").value.trim();
+        const providers = collectProviders();
+        const models = collectModels();
+        const accessKeys = collectAccessKeys(models);
+        const corsOrigins = corsOriginsInput.value.trim();
+        const corsCreds = corsCredsSelect.value === "true";
+        const rateLimitEnabled = rateLimitEnabledSelect.value === "true";
+        const rateLimitRequests = rateLimitRequestsInput.value.trim();
+        const rateLimitWindow = rateLimitWindowInput.value.trim();
+        const logSample = logSampleInput.value.trim();
+        const logHeaders = logHeadersSelect.value === "true";
+        const logBody = logBodySelect.value === "true";
+        const logRedactHeaders = logRedactHeadersInput.value.trim();
+        const logRedactKeys = logRedactKeysInput.value.trim();
+
+        const config = {};
+        if (portValue) {
+          config.server = { port: Number(portValue) };
+        }
+        if (defaultModel) {
+          config.defaults = { model: defaultModel };
+        }
+        if (!defaultModel && models.length) {
+          config.defaults = { model: models[0].id };
+        }
+        if (accessKeys) {
+          config.access_keys = accessKeys;
+        }
+        if (corsOrigins) {
+          config.cors = {
+            origins: corsOrigins.split(",").map((item) => item.trim()).filter((item) => item),
+            allow_credentials: corsCreds,
+          };
+        } else if (corsCreds) {
+          config.cors = { origins: [], allow_credentials: true };
+        }
+        if (rateLimitEnabled && rateLimitRequests && rateLimitWindow) {
+          const limitValue = Number(rateLimitRequests);
+          const windowValue = Number(rateLimitWindow);
+          if (!Number.isNaN(limitValue) && !Number.isNaN(windowValue)) {
+            config.rate_limit = {
+              requests: limitValue,
+              window_seconds: windowValue,
+            };
+          }
+        }
+        if (logSample || logHeaders || logBody || logRedactHeaders || logRedactKeys) {
+          config.logging = {};
+          if (logSample) {
+            const sampleValue = Number(logSample);
+            if (!Number.isNaN(sampleValue)) {
+              config.logging.sample_rate = sampleValue;
+            }
+          }
+          if (logHeaders) {
+            config.logging.include_headers = true;
+          }
+          if (logBody) {
+            config.logging.include_body = true;
+          }
+          if (logRedactHeaders) {
+            config.logging.redact_headers = logRedactHeaders
+              .split(",")
+              .map((item) => item.trim())
+              .filter((item) => item);
+          }
+          if (logRedactKeys) {
+            config.logging.redact_keys = logRedactKeys
+              .split(",")
+              .map((item) => item.trim())
+              .filter((item) => item);
+          }
+        }
+        if (Object.keys(providers).length) {
+          config.providers = providers;
+        }
+        if (models.length) {
+          config.models = models;
+        }
+        configOutput.value = JSON.stringify(config, null, 2);
+        renderValidation(validateConfig(config));
+      }
+
+      // Copy config.json text to clipboard.
+      async function copyConfig() {
+        const text = configOutput.value.trim();
+        if (!text) {
+          configOutput.value = "{}";
+        }
+        try {
+          await navigator.clipboard.writeText(configOutput.value);
+        } catch (error) {
+          configOutput.select();
+          document.execCommand("copy");
+        }
+      }
+
+      document.getElementById("addProvider").addEventListener("click", () => {
+        providersContainer.appendChild(createProviderRow());
+        applyI18n();
+      });
+      document.getElementById("addModel").addEventListener("click", () => {
+        createModelRow();
+      });
+      document.getElementById("generateConfig").addEventListener("click", generateConfig);
+      document.getElementById("copyConfig").addEventListener("click", copyConfig);
+      document.getElementById("downloadConfig").addEventListener("click", () => {
+        if (!configOutput.value.trim()) {
+          generateConfig();
+        }
+        const blob = new Blob([configOutput.value], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "config.json";
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+      });
+
+      // UI row for key -> model mapping.
+      function createKeyRow(values = {}) {
+        const row = document.createElement("div");
+        row.className = "grid gap-3 md:grid-cols-[1fr_1fr_auto] items-end key-row";
+        row.innerHTML = `
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="config.access_key">Access Key</span>
+            </label>
+            <input class="key-value input input-bordered input-xs" data-i18n-placeholder="placeholder.access_key" placeholder="your-proxy-key" value="${values.key || ""}" />
+          </div>
+          <div class="form-control">
+            <label class="label text-xs text-base-content/60">
+              <span class="label-text" data-i18n="config.key_models">Allowed Models</span>
+            </label>
+            <input class="key-models input input-bordered input-xs" data-i18n-placeholder="placeholder.key_models" placeholder="model-a, model-b (optional)" value="${values.models || ""}" />
+          </div>
+          <div class="flex md:justify-end">
+            <button class="btn btn-xs btn-ghost remove-key" data-i18n="button.remove">Remove</button>
+          </div>
+        `;
+        row.querySelector(".remove-key").addEventListener("click", () => row.remove());
+        return row;
+      }
+
+      // Toggle single vs key-map UI.
+      function updateKeyMode() {
+        const mode = keyModeSelect.value;
+        if (mode === "map") {
+          singleKeyWrap.classList.add("hidden");
+          keyMapSection.classList.remove("hidden");
+          if (!keyMapContainer.children.length) {
+            keyMapContainer.appendChild(createKeyRow());
+            applyI18n();
+          }
+        } else {
+          singleKeyWrap.classList.remove("hidden");
+          keyMapSection.classList.add("hidden");
+        }
+      }
+
+      document.getElementById("addKeyRule").addEventListener("click", () => {
+        keyMapContainer.appendChild(createKeyRow());
+        applyI18n();
+      });
+      keyModeSelect.addEventListener("change", updateKeyMode);
+      langSelect.addEventListener("change", () => {
+        localStorage.setItem("aiproxy.lang", langSelect.value);
+        activeLang = detectLang();
+        applyI18n();
+      });
+
+      providersContainer.appendChild(
+        createProviderRow({
+          name: "gemini",
+          base_url: "https://generativelanguage.googleapis.com/v1beta/openai/",
+          api_key: "",
+        })
+      );
+      createModelRow({
+        id: "aiproxy-gemini",
+        provider: "gemini",
+        model: "gemini-2.0-flash",
+      });
+
+      langSelect.value = getStoredLang();
+      activeLang = detectLang();
+      applyI18n();
+      updateKeyMode();
+      renderHistory();
+      renderValidation([]);
+      loadModels();
+    </script>
+  </body>
+</html>

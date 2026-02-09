@@ -1,0 +1,24 @@
+version: "3.9"
+name: aiproxy
+services:
+  aiproxy:
+    container_name: aiproxy
+    build:
+      context: .
+      dockerfile: Dockerfile
+      network: host
+    image: aiproxy:latest
+    restart: unless-stopped
+    ports:
+      - "${AIPROXY_PORT:-4000}:4000"
+    environment:
+      CREATE_LOG: "True"
+      LOG_LEVEL: "INFO"
+      CONFIG_PATH: /app/config.json
+    dns:
+      - 223.5.5.5
+      - 119.29.29.29
+      - 8.8.8.8
+    volumes:
+      - ./config.json:/app/config.json:ro
+      - ./logs:/app/src/logs

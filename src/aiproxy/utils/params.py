@@ -1,0 +1,202 @@
+"""Request parameter normalization and mapping."""
+import base64
+import json
+
+
+def _bytes_from_array(value):
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, list) and all(isinstance(x, int) for x in value):
+        return bytes(value)
+    if isinstance(value, dict) and value.get("type") == "Buffer" and isinstance(value.get("data"), list):
+        return bytes(value["data"])
+    return None
+
+
+def _extract_image_url(part):
+    if not isinstance(part, dict):
+        return None
+    image_url = part.get("image_url")
+    if isinstance(image_url, str):
+        return image_url
+    if isinstance(image_url, dict):
+        url = image_url.get("url")
+        if isinstance(url, str):
+            return url
+    image = part.get("image")
+    if isinstance(image, str):
+        return image
+    if isinstance(image, dict):
+        url = image.get("url") or image.get("href")
+        if isinstance(url, str):
+            return url
+        data = image.get("data")
+        media_type = image.get("mediaType") or image.get("mimeType")
+        raw = _bytes_from_array(data)
+        if raw and isinstance(media_type, str) and media_type:
+            encoded = base64.b64encode(raw).decode("ascii")
+            return f"data:{media_type};base64,{encoded}"
+    data = part.get("data")
+    media_type = part.get("mediaType") or part.get("mimeType")
+    raw = _bytes_from_array(data)
+    if raw and isinstance(media_type, str) and media_type:
+        encoded = base64.b64encode(raw).decode("ascii")
+        return f"data:{media_type};base64,{encoded}"
+    return None
+
+
+def normalize_messages_from_input(data):
+    """Normalize /v1/responses input into chat-style messages."""
+    if "messages" in data and isinstance(data["messages"], list):
+        return data["messages"]
+
+    input_data = data.get("input")
+    if input_data is None:
+        return []
+
+    if isinstance(input_data, str):
+        return [{"role": "user", "content": input_data}]
+
+    if isinstance(input_data, list):
+        messages = []
+        for item in input_data:
+            if isinstance(item, str):
+                messages.append({"role": "user", "content": item})
+                continue
+            if isinstance(item, dict):
+                if "role" in item and "content" in item:
+                    messages.append({"role": item["role"], "content": item["content"]})
+                    continue
+                if item.get("type") == "message":
+                    role = item.get("role", "user")
+                    content = item.get("content", "")
+                    if isinstance(content, list):
+                        text_parts = []
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") in ("input_text", "text"):
+                                text_parts.append(part.get("text", ""))
+                        content = "".join(text_parts)
+                    messages.append({"role": role, "content": content})
+                    continue
+            messages.append({"role": "user", "content": json.dumps(item)})
+        return messages
+
+    return [{"role": "user", "content": str(input_data)}]
+
+
+def extract_chat_params(payload_dict):
+    """Return chat.completions params excluding model/messages/stream."""
+    excluded = {"model", "messages", "stream"}
+    allowed = {
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "max_completion_tokens",
+        "presence_penalty",
+        "frequency_penalty",
+        "logprobs",
+        "top_logprobs",
+        "n",
+        "stop",
+        "seed",
+        "user",
+        "tools",
+        "tool_choice",
+        "response_format",
+        "metadata",
+        "store",
+        "parallel_tool_calls",
+        "stream_options",
+        "modalities",
+    }
+    return {key: value for key, value in payload_dict.items() if key in allowed and key not in excluded}
+
+
+def extract_chat_params_from_responses(payload_dict):
+    """Map /v1/responses params to chat.completions params."""
+    params = {}
+    if "temperature" in payload_dict:
+        params["temperature"] = payload_dict["temperature"]
+    if "top_p" in payload_dict:
+        params["top_p"] = payload_dict["top_p"]
+    if "seed" in payload_dict:
+        params["seed"] = payload_dict["seed"]
+    if "stop" in payload_dict:
+        params["stop"] = payload_dict["stop"]
+    if "tools" in payload_dict:
+        params["tools"] = payload_dict["tools"]
+    if "tool_choice" in payload_dict:
+        params["tool_choice"] = payload_dict["tool_choice"]
+    if "response_format" in payload_dict:
+        params["response_format"] = payload_dict["response_format"]
+    if "metadata" in payload_dict:
+        params["metadata"] = payload_dict["metadata"]
+    if "store" in payload_dict:
+        params["store"] = payload_dict["store"]
+    if "parallel_tool_calls" in payload_dict:
+        params["parallel_tool_calls"] = payload_dict["parallel_tool_calls"]
+    if "modalities" in payload_dict:
+        params["modalities"] = payload_dict["modalities"]
+    if "n" in payload_dict:
+        params["n"] = payload_dict["n"]
+    if "max_output_tokens" in payload_dict:
+        params["max_tokens"] = payload_dict["max_output_tokens"]
+    return params
+
+
+def coerce_messages_for_chat(messages):
+    """Normalize message content parts for chat.completions providers."""
+    if not isinstance(messages, list):
+        return messages
+    normalized = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            normalized.append(msg)
+            continue
+        content = msg.get("content")
+        # Convert content dicts with explicit type into supported forms.
+        if isinstance(content, dict):
+            part_type = content.get("type")
+            if part_type in ("text", "input_text", "output_text") or "text" in content:
+                new_msg = dict(msg)
+                new_msg["content"] = (
+                    content.get("text")
+                    or content.get("input_text")
+                    or content.get("output_text")
+                    or ""
+                )
+                normalized.append(new_msg)
+                continue
+            if part_type in ("image_url", "image", "input_image"):
+                new_msg = dict(msg)
+                url = _extract_image_url(content)
+                if url:
+                    new_msg["content"] = [{"type": "image_url", "image_url": {"url": url}}]
+                else:
+                    new_msg["content"] = ""
+                normalized.append(new_msg)
+                continue
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                if part_type in ("text", "input_text", "output_text") or "text" in part:
+                    text = part.get("text") or part.get("input_text") or part.get("output_text") or ""
+                    parts.append({"type": "text", "text": text})
+                elif part_type in ("image_url", "image", "input_image"):
+                    url = _extract_image_url(part)
+                    if url:
+                        parts.append({"type": "image_url", "image_url": {"url": url}})
+            new_msg = dict(msg)
+            if not parts:
+                new_msg["content"] = ""
+            elif len(parts) == 1 and parts[0]["type"] == "text":
+                new_msg["content"] = parts[0].get("text", "")
+            else:
+                new_msg["content"] = parts
+            normalized.append(new_msg)
+            continue
+        normalized.append(msg)
+    return normalized

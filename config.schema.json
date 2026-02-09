@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/aiproxy/config.schema.json",
+  "title": "AIProxy Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": { "type": "string", "minLength": 1 }
+      }
+    },
+    "access_keys": {
+      "oneOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "object", "properties": { "models": { "type": "array", "items": { "type": "string" } } }, "additionalProperties": false },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        }
+      ]
+    },
+    "cors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origins": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string" } },
+            { "type": "string" }
+          ]
+        },
+        "allow_credentials": { "type": "boolean" }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "type": "integer", "minimum": 1 },
+        "window_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sample_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "include_headers": { "type": "boolean" },
+        "include_body": { "type": "boolean" },
+        "redact_headers": { "type": "array", "items": { "type": "string" } },
+        "redact_keys": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "responses": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["auto", "native", "chat"] }
+      }
+    },
+    "providers": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "base_url": { "type": "string", "minLength": 1 },
+          "api_key": { "type": "string", "minLength": 1 },
+          "responses": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": { "type": "string", "enum": ["auto", "native", "chat"] }
+            }
+          }
+        },
+        "required": ["base_url", "api_key"]
+      }
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "provider": { "type": "string", "minLength": 1 },
+          "model": { "type": "string", "minLength": 1 },
+          "owned_by": { "type": "string" },
+          "permission": { "type": "array" },
+          "root": { "type": "string" },
+          "parent": { "type": ["string", "null"] },
+          "responses": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": { "type": "string", "enum": ["auto", "native", "chat"] }
+            }
+          }
+        },
+        "required": ["id", "provider", "model"]
+      }
+    }
+  },
+  "required": ["providers", "models"]
+}

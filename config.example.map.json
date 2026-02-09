@@ -1,0 +1,58 @@
+{
+  "server": {
+    "port": 4000
+  },
+  "defaults": {
+    "model": "aiproxy-gemini"
+  },
+  "access_keys": {
+    "team-alpha": {
+      "models": ["aiproxy-gemini"]
+    },
+    "team-beta": {
+      "models": ["aiproxy-openrouter"]
+    },
+    "admin": {}
+  },
+  "cors": {
+    "origins": ["*"],
+    "allow_credentials": false
+  },
+  "rate_limit": {
+    "requests": 60,
+    "window_seconds": 60
+  },
+  "logging": {
+    "sample_rate": 1.0,
+    "include_headers": false,
+    "include_body": false,
+    "redact_headers": ["authorization", "x-api-key", "api-key"],
+    "redact_keys": ["api_key", "apiKey", "access_keys"]
+  },
+  "providers": {
+    "gemini": {
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "api_key": "YOUR_GEMINI_KEY",
+      "responses": { "mode": "auto" }
+    },
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key": "YOUR_OPENROUTER_KEY",
+      "responses": { "mode": "auto" }
+    }
+  },
+  "models": [
+    {
+      "id": "aiproxy-gemini",
+      "provider": "gemini",
+      "model": "gemini-2.0-flash",
+      "responses": { "mode": "auto" }
+    },
+    {
+      "id": "aiproxy-openrouter",
+      "provider": "openrouter",
+      "model": "openai/gpt-4o-mini",
+      "responses": { "mode": "auto" }
+    }
+  ]
+}
