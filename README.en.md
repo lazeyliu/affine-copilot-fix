@@ -49,8 +49,9 @@ src/
 ```mermaid
 flowchart LR
   Client[Client or UI] -->|Authorization: Bearer key| Proxy[AIProxy]
-  Proxy -->|model id mapping| Config[config.json]
-  Proxy -->|OpenAI-compatible request| Provider[Upstream Provider]
+  Proxy -->|resolve model alias| Config[config.json]
+  Config -->|map to provider model| Mapped[provider_model]
+  Proxy -->|rewrite model + forward| Provider[Upstream Provider]
   Provider --> Proxy --> Client
 ```
 

@@ -49,8 +49,9 @@ src/
 ```mermaid
 flowchart LR
   Client[客户端或 API 面板] -->|Authorization: Bearer key| Proxy[AIProxy]
-  Proxy -->|model 别名映射| Config[config.json]
-  Proxy -->|OpenAI 兼容请求| Provider[上游供应商]
+  Proxy -->|解析 model 别名| Config[config.json]
+  Config -->|映射为上游模型| Mapped[provider_model]
+  Proxy -->|改写 model 并转发| Provider[上游供应商]
   Provider --> Proxy --> Client
 ```
 
@@ -63,10 +64,12 @@ flowchart TD
 
   Proxy -->|校验 access_keys| Auth{Key 合法?}
   Auth -- 否 --> Reject[返回 401]
-  Auth -- 是 --> Route[解析 model -> provider]
+  Auth -- 是 --> Route[解析 model 别名]
 
   Route --> Config[读取 config.json]
-  Config --> Provider[上游供应商 API]
+  Config --> Map[映射为上游模型]
+  Map --> Rewrite[改写 model 并转发]
+  Rewrite --> Provider[上游供应商 API]
 
   Provider --> Proxy --> Client
 ```
