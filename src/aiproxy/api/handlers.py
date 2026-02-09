@@ -22,7 +22,7 @@ from ..utils.params import (
     extract_chat_params_from_responses,
     normalize_messages_from_input,
 )
-from .schemas import ChatCompletionsRequest, CompletionsRequest, ResponsesRequest
+from .schemas import ChatCompletionsRequest, CompletionsRequest, EmbeddingsRequest, ResponsesRequest
 from ..services.openai_service import (
     create_client,
     create_chat_completion,
@@ -618,6 +618,79 @@ def register_routes(app, settings):
 
         except Exception as e:
             log_event(40, "responses_error", error=str(e), request_id=g.request_id)
+            return error_response(str(e), 500, "internal_error")
+
+    @app.route('/embeddings', methods=['POST'])
+    @app.route('/v1/embeddings', methods=['POST'])
+    def embeddings():
+        try:
+            data = request.get_json(silent=True) or {}
+            if "model" not in data and "modelId" in data:
+                data["model"] = data["modelId"]
+            try:
+                payload = EmbeddingsRequest.model_validate(data)
+            except ValidationError as e:
+                return error_response(str(e), 400, "invalid_request_error")
+            payload_dict = payload.model_dump(exclude_none=True)
+            if payload.input is None:
+                return error_response("No input provided", 400, "invalid_request_error")
+
+            resolved, error_message = _resolve_request_model(payload_dict)
+            if error_message:
+                return error_response(error_message, 400)
+
+            params = {}
+            if "input" in payload_dict:
+                params["input"] = payload_dict["input"]
+            if "dimensions" in payload_dict:
+                params["dimensions"] = payload_dict["dimensions"]
+            if "encoding_format" in payload_dict:
+                params["encoding_format"] = payload_dict["encoding_format"]
+            if "user" in payload_dict:
+                params["user"] = payload_dict["user"]
+
+            g.upstream_url = _build_upstream_url(resolved.get("base_url", ""), "embeddings")
+
+            log_cfg = get_logging_config()
+            upstream_payload = redact_payload(
+                {"model": resolved["model"], **params},
+                log_cfg.get("redact_keys", []),
+            )
+            if log_cfg.get("include_body"):
+                try:
+                    log_event(
+                        20,
+                        "upstream_request",
+                        request_id=g.request_id,
+                        provider=resolved.get("provider_name") or resolved.get("base_url"),
+                        upstream_url=g.upstream_url,
+                        payload=upstream_payload,
+                    )
+                except Exception as e:
+                    log_event(40, "upstream_log_failed", error=str(e))
+
+            client = _build_client(settings, resolved["base_url"], resolved["api_key"])
+            try:
+                response_obj = client.embeddings.create(model=resolved["model"], **params)
+            except openai.RateLimitError as e:
+                return error_response(str(e), 429, "rate_limit_error")
+            except openai.APIConnectionError as e:
+                return error_response(str(e), 502, "api_connection_error")
+            except openai.APIStatusError as e:
+                _log_upstream_error(e, g.request_id, g.upstream_url, payload=upstream_payload)
+                status = getattr(e, "status_code", 502) or 502
+                return error_response(str(e), status, "api_error")
+            except Exception as e:
+                return error_response(str(e), 500, "internal_error")
+
+            if hasattr(response_obj, "model_dump"):
+                return jsonify(response_obj.model_dump())
+            if hasattr(response_obj, "dict"):
+                return jsonify(response_obj.dict())
+            return jsonify(response_obj)
+
+        except Exception as e:
+            log_event(40, "embeddings_error", error=str(e), request_id=g.request_id)
             return error_response(str(e), 500, "internal_error")
 
     @app.route('/models', methods=['GET'])

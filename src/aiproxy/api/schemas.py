@@ -91,3 +91,15 @@ class ResponsesRequest(BaseModel):
     class Config:
         # Allow forward-compat fields from clients; we ignore unsupported ones.
         extra = "allow"
+
+
+class EmbeddingsRequest(BaseModel):
+    model: Optional[str] = None
+    input: Optional[Union[str, List[str]]] = None
+    dimensions: Optional[int] = None
+    encoding_format: Optional[str] = None
+    user: Optional[str] = None
+
+    class Config:
+        # Allow forward-compat fields from clients; we ignore unsupported ones.
+        extra = "allow"
