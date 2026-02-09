@@ -55,6 +55,40 @@ flowchart LR
   Provider --> Proxy --> Client
 ```
 
+## Detailed request flow
+```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 40, 'rankSpacing': 50}}}%%
+flowchart LR
+  subgraph Inbound[Inbound]
+    Client[Client or API Console]
+    Proxy[AIProxy]
+  end
+
+  subgraph AuthFlow[Auth + Routing]
+    Auth{Key valid?}
+    Reject[Return 401]
+    Route[Resolve model alias]
+    Config[Read config.json]
+    Map[Map to provider model]
+    Rewrite[Rewrite model + forward]
+  end
+
+  subgraph Upstream[Upstream]
+    Provider[Upstream Provider API]
+  end
+
+  Client -->|GET /v1/models| Proxy
+  Client -->|POST /v1/chat/completions| Proxy
+  Client -->|POST /v1/responses| Proxy
+
+  Proxy -->|validate access_keys| Auth
+  Auth -- No --> Reject
+  Auth -- Yes --> Route
+  Route --> Config --> Map --> Rewrite --> Provider
+
+  Provider --> Proxy --> Client
+```
+
 ## Request flow (summary)
 1) Client calls AIProxy with `model` + `Authorization` key.
 2) AIProxy validates the key and filters allowed models.
