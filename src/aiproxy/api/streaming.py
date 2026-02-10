@@ -45,11 +45,38 @@ def _stream_error_payload(message, response_id, created, response_model, error_t
     }
 
 
+def _extract_tool_delta_text(delta_payload: dict) -> str:
+    text_parts = []
+    tool_calls = delta_payload.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function") or {}
+            if isinstance(function, dict):
+                name = function.get("name")
+                if isinstance(name, str):
+                    text_parts.append(name)
+                args = function.get("arguments")
+                if isinstance(args, str):
+                    text_parts.append(args)
+    function_call = delta_payload.get("function_call")
+    if isinstance(function_call, dict):
+        name = function_call.get("name")
+        if isinstance(name, str):
+            text_parts.append(name)
+        args = function_call.get("arguments")
+        if isinstance(args, str):
+            text_parts.append(args)
+    return "".join(text_parts)
+
+
 def stream_chat_sse(client, model, messages, response_model, response_id, created, **kwargs):
     """Stream chat.completions and emit SSE in OpenAI format."""
     try:
         stream = stream_chat_completion(client, model, messages, **kwargs)
         output_text = ""
+        output_tool_text = ""
         sent_usage = False
         for chunk in stream:
             choice = _get_first_choice(chunk)
@@ -82,6 +109,7 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
             delta_content = delta_payload.get("content")
             if isinstance(delta_content, str):
                 output_text += delta_content
+            output_tool_text += _extract_tool_delta_text(delta_payload)
             data = {
                 "id": response_id,
                 "object": "chat.completion.chunk",
@@ -102,7 +130,7 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
 
         if not sent_usage:
             prompt_tokens = count_messages_tokens(messages, model=response_model)
-            completion_tokens = count_text_tokens(output_text, model=response_model)
+            completion_tokens = count_text_tokens(output_text + output_tool_text, model=response_model)
             usage_payload = {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
