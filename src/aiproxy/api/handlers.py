@@ -922,6 +922,25 @@ def register_routes(app, settings):
                         "rejected_prediction_tokens": 0,
                     },
                 }
+            legacy = request.path in ("/chat/completions",)
+            if legacy:
+                return jsonify(
+                    {
+                        "id": _make_response_id("cmpl"),
+                        "object": "text_completion",
+                        "created": int(time.time()),
+                        "model": resolved["id"],
+                        "choices": [
+                            {
+                                "index": 0,
+                                "text": content,
+                                "finish_reason": "stop",
+                                "logprobs": None,
+                            }
+                        ],
+                        "usage": usage,
+                    }
+                )
             return jsonify(
                 {
                     "id": _make_response_id("chatcmpl"),
@@ -934,15 +953,11 @@ def register_routes(app, settings):
                             "message": {
                                 "role": "assistant",
                                 "content": content,
-                                "refusal": None,
                             },
                             "finish_reason": "stop",
-                            "logprobs": None,
                         }
                     ],
                     "usage": usage,
-                    "service_tier": "default",
-                    "system_fingerprint": None,
                 }
             )
 
