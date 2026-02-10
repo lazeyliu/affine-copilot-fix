@@ -246,23 +246,45 @@ class LocalStore:
 
     def list_upload_parts(self, upload_id: str) -> list[dict]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT id, size, path, created_at, sha256 FROM upload_parts WHERE upload_id = ? ORDER BY created_at ASC",
-                (upload_id,),
-            ).fetchall()
+            try:
+                rows = self._conn.execute(
+                    "SELECT id, size, path, created_at, sha256 FROM upload_parts WHERE upload_id = ? ORDER BY created_at ASC",
+                    (upload_id,),
+                ).fetchall()
+                has_hash = True
+            except sqlite3.OperationalError:
+                rows = self._conn.execute(
+                    "SELECT id, size, path, created_at FROM upload_parts WHERE upload_id = ? ORDER BY created_at ASC",
+                    (upload_id,),
+                ).fetchall()
+                has_hash = False
         parts = []
-        for part_id, size, path, created_at, sha256 in rows:
-            parts.append(
-                {
-                    "id": part_id,
-                    "object": "upload.part",
-                    "upload_id": upload_id,
-                    "bytes": size or 0,
-                    "created_at": created_at,
-                    "path": path,
-                    "sha256": sha256,
-                }
-            )
+        if has_hash:
+            for part_id, size, path, created_at, sha256 in rows:
+                parts.append(
+                    {
+                        "id": part_id,
+                        "object": "upload.part",
+                        "upload_id": upload_id,
+                        "bytes": size or 0,
+                        "created_at": created_at,
+                        "path": path,
+                        "sha256": sha256,
+                    }
+                )
+        else:
+            for part_id, size, path, created_at in rows:
+                parts.append(
+                    {
+                        "id": part_id,
+                        "object": "upload.part",
+                        "upload_id": upload_id,
+                        "bytes": size or 0,
+                        "created_at": created_at,
+                        "path": path,
+                        "sha256": None,
+                    }
+                )
         return parts
 
     def delete_upload_parts(self, upload_id: str) -> None:

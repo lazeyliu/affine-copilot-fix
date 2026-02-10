@@ -4,7 +4,6 @@ import json
 import os
 import uuid
 import base64
-import hashlib
 import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -1877,25 +1876,20 @@ def register_routes(app, settings):
             existing = store.get_item("upload", upload_id)
             if not existing:
                 return _not_found("upload", upload_id)
-            parts_list = (
-                store.list_upload_parts(upload_id)
-                + store.list_items("upload.part", parent_id=upload_id)
-                + store.list_items("upload_part", parent_id=upload_id)
-            )
+            file_parts = store.list_upload_parts(upload_id)
+            if file_parts:
+                parts_list = file_parts
+            else:
+                new_parts = store.list_items("upload.part", parent_id=upload_id)
+                parts_list = new_parts if new_parts else store.list_items("upload_part", parent_id=upload_id)
             parts_list = sorted(parts_list, key=lambda item: item.get("created_at", 0))
             filename = existing.get("filename") or "upload"
             mime_type = existing.get("mime_type") or "application/octet-stream"
-            seen_hashes = set()
 
             def iter_parts():
                 for part in parts_list:
                     path = part.get("path")
-                    part_hash = part.get("sha256")
                     if path and os.path.exists(path):
-                        if part_hash:
-                            if part_hash in seen_hashes:
-                                continue
-                            seen_hashes.add(part_hash)
                         with open(path, "rb") as f:
                             while True:
                                 chunk = f.read(1024 * 1024)
@@ -1906,12 +1900,7 @@ def register_routes(app, settings):
                         data_b64 = part.get("data_b64")
                         if data_b64:
                             try:
-                                data = base64.b64decode(data_b64)
-                                digest = hashlib.sha256(data).hexdigest()
-                                if digest in seen_hashes:
-                                    continue
-                                seen_hashes.add(digest)
-                                yield data
+                                yield base64.b64decode(data_b64)
                             except Exception:
                                 continue
 

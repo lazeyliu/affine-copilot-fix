@@ -163,28 +163,28 @@ def register_middlewares(app, settings, rate_limiter):
                             }
                             try:
                                 stream = storage.stream
-                                if hasattr(stream, "seek"):
-                                    stream.seek(0)
-                                digest = hashlib.sha256()
                                 sample = bytearray()
-                                total = 0
-                                while True:
-                                    chunk = stream.read(1024 * 1024)
-                                    if not chunk:
-                                        break
-                                    total += len(chunk)
-                                    digest.update(chunk)
-                                    if max_file_bytes and len(sample) < max_file_bytes:
-                                        sample.extend(chunk[: max_file_bytes - len(sample)])
+                                truncated = False
                                 if hasattr(stream, "seek"):
                                     stream.seek(0)
-                                file_entry["sha256"] = digest.hexdigest()
-                                if file_entry.get("size") is None:
-                                    file_entry["size"] = total
-                                if max_file_bytes and sample:
+                                if max_file_bytes:
+                                    data = stream.read(max_file_bytes + 1)
+                                    if len(data) > max_file_bytes:
+                                        truncated = True
+                                        data = data[:max_file_bytes]
+                                    sample.extend(data)
+                                if hasattr(stream, "seek"):
+                                    stream.seek(0)
+                                if sample:
+                                    file_entry["sha256_sample"] = hashlib.sha256(sample).hexdigest()
                                     file_entry["sample_b64"] = base64.b64encode(sample).decode("ascii")
+                                if file_entry.get("size") is None and storage.content_length is not None:
+                                    file_entry["size"] = storage.content_length
+                                if file_entry.get("size") is not None:
+                                    truncated = truncated or (file_entry["size"] > max_file_bytes)
+                                file_entry["sample_truncated"] = truncated
                             except Exception:
-                                file_entry["sha256"] = None
+                                file_entry["sha256_sample"] = None
                             files_info.append(file_entry)
                     detail["body"] = {
                         "content_type": request.mimetype,

@@ -11,7 +11,22 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
 
 # Install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python - <<'PY'
+import sys
+
+lines = open("requirements.txt", "r", encoding="utf-8").read().splitlines()
+out = []
+for line in lines:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        continue
+    name = stripped.split(";", 1)[0].strip().lower()
+    if name.startswith("tiktoken") and sys.version_info >= (3, 13):
+        continue
+    out.append(line)
+open("requirements.docker.txt", "w", encoding="utf-8").write("\n".join(out) + "\n")
+PY
+RUN pip install --no-cache-dir -r requirements.docker.txt
 
 # ---- Runtime Stage ----
 FROM python:3.13-slim
