@@ -1,4 +1,6 @@
 """Flask middleware registration for auth, rate limiting, and logging."""
+import base64
+import hashlib
 import time
 import uuid
 from flask import g, request, Response
@@ -140,18 +142,98 @@ def register_middlewares(app, settings, rate_limiter):
             detail = {}
             if log_cfg.get("include_headers"):
                 detail["headers"] = redact_headers(dict(request.headers), log_cfg.get("redact_headers", []))
-            if log_cfg.get("include_body") and request.is_json:
-                body = request.get_json(silent=True)
-                detail["body"] = redact_payload(body, log_cfg.get("redact_keys", []))
+            if log_cfg.get("include_body"):
+                if request.is_json:
+                    body = request.get_json(silent=True)
+                    detail["body"] = redact_payload(body, log_cfg.get("redact_keys", []))
+                else:
+                    form_data = {}
+                    if request.form:
+                        form_data = {key: values for key, values in request.form.lists()}
+                        form_data = redact_payload(form_data, log_cfg.get("redact_keys", []))
+                    files_info = []
+                    max_file_bytes = int(log_cfg.get("max_file_log_bytes") or 4096)
+                    if request.files:
+                        for key, storage in request.files.items(multi=True):
+                            file_entry = {
+                                "field": key,
+                                "filename": storage.filename,
+                                "content_type": storage.mimetype,
+                                "size": storage.content_length,
+                            }
+                            try:
+                                stream = storage.stream
+                                if hasattr(stream, "seek"):
+                                    stream.seek(0)
+                                digest = hashlib.sha256()
+                                sample = bytearray()
+                                total = 0
+                                while True:
+                                    chunk = stream.read(1024 * 1024)
+                                    if not chunk:
+                                        break
+                                    total += len(chunk)
+                                    digest.update(chunk)
+                                    if max_file_bytes and len(sample) < max_file_bytes:
+                                        sample.extend(chunk[: max_file_bytes - len(sample)])
+                                if hasattr(stream, "seek"):
+                                    stream.seek(0)
+                                file_entry["sha256"] = digest.hexdigest()
+                                if file_entry.get("size") is None:
+                                    file_entry["size"] = total
+                                if max_file_bytes and sample:
+                                    file_entry["sample_b64"] = base64.b64encode(sample).decode("ascii")
+                            except Exception:
+                                file_entry["sha256"] = None
+                            files_info.append(file_entry)
+                    detail["body"] = {
+                        "content_type": request.mimetype,
+                        "content_length": request.content_length,
+                        "form": form_data,
+                        "files": files_info,
+                    }
             if log_cfg.get("include_body"):
                 try:
-                    response_body = None
-                    if isinstance(response.response, list):
-                        response_body = b"".join(response.response)
-                    elif hasattr(response, "get_data"):
-                        response_body = response.get_data()
-                    if response_body is not None:
-                        detail["response"] = response_body.decode("utf-8", errors="replace")
+                    if getattr(response, "is_streamed", False) or getattr(response, "direct_passthrough", False):
+                        detail["response"] = "[stream omitted]"
+                    elif response.mimetype == "text/event-stream":
+                        detail["response"] = "[sse omitted]"
+                    else:
+                        max_len = int(log_cfg.get("max_body_length") or 4096)
+                        content_len = response.content_length
+                        mimetype = response.mimetype or ""
+                        if content_len is not None and content_len > max_len:
+                            detail["response"] = f"[body omitted: {content_len} bytes]"
+                        elif mimetype.startswith("text/") or mimetype in ("application/json", "application/problem+json"):
+                            response_body = None
+                            if isinstance(response.response, list):
+                                chunks = []
+                                total = 0
+                                for chunk in response.response:
+                                    if isinstance(chunk, str):
+                                        chunk = chunk.encode("utf-8")
+                                    if not isinstance(chunk, (bytes, bytearray)):
+                                        continue
+                                    take = chunk[: max_len - total]
+                                    chunks.append(take)
+                                    total += len(take)
+                                    if total >= max_len:
+                                        break
+                                response_body = b"".join(chunks)
+                            elif hasattr(response, "get_data") and content_len is not None:
+                                response_body = response.get_data()
+                            if response_body is None:
+                                detail["response"] = "[body omitted: unknown length]"
+                            else:
+                                truncated = response_body[:max_len]
+                                text = truncated.decode("utf-8", errors="replace")
+                                if content_len is None and len(truncated) == max_len:
+                                    text += "...(truncated)"
+                                elif content_len is not None and content_len > max_len:
+                                    text += "...(truncated)"
+                                detail["response"] = text
+                        else:
+                            detail["response"] = "[binary omitted]"
                 except Exception:
                     detail["response"] = None
             if detail:

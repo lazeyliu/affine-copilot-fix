@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sqlite3
 import threading
@@ -51,6 +52,10 @@ class LocalStore:
             "updated_at INTEGER NOT NULL"
             ")"
         )
+        try:
+            self._conn.execute("ALTER TABLE upload_parts ADD COLUMN sha256 TEXT")
+        except sqlite3.OperationalError:
+            pass
         self._conn.commit()
 
     def _now(self) -> int:
@@ -222,10 +227,11 @@ class LocalStore:
         with open(path, "wb") as f:
             f.write(content)
         size = len(content)
+        digest = hashlib.sha256(content).hexdigest()
         with self._lock:
             self._conn.execute(
-                "INSERT INTO upload_parts (id, upload_id, size, path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (part_id, upload_id, size, path, created_at, created_at),
+                "INSERT INTO upload_parts (id, upload_id, size, path, created_at, updated_at, sha256) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (part_id, upload_id, size, path, created_at, created_at, digest),
             )
             self._conn.commit()
         return {
@@ -235,16 +241,17 @@ class LocalStore:
             "bytes": size,
             "created_at": created_at,
             "path": path,
+            "sha256": digest,
         }
 
     def list_upload_parts(self, upload_id: str) -> list[dict]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT id, size, path, created_at FROM upload_parts WHERE upload_id = ? ORDER BY created_at ASC",
+                "SELECT id, size, path, created_at, sha256 FROM upload_parts WHERE upload_id = ? ORDER BY created_at ASC",
                 (upload_id,),
             ).fetchall()
         parts = []
-        for part_id, size, path, created_at in rows:
+        for part_id, size, path, created_at, sha256 in rows:
             parts.append(
                 {
                     "id": part_id,
@@ -253,6 +260,7 @@ class LocalStore:
                     "bytes": size or 0,
                     "created_at": created_at,
                     "path": path,
+                    "sha256": sha256,
                 }
             )
         return parts

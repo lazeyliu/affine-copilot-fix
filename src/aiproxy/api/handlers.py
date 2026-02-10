@@ -4,6 +4,7 @@ import json
 import os
 import uuid
 import base64
+import hashlib
 import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -581,6 +582,7 @@ def register_routes(app, settings):
         sanitized = dict(item)
         sanitized.pop("data_b64", None)
         sanitized.pop("path", None)
+        sanitized.pop("sha256", None)
         return sanitized
 
     def _normalize_upload_part_object(item: dict) -> dict:
@@ -1837,6 +1839,10 @@ def register_routes(app, settings):
                 return jsonify(item) if item else _not_found("upload", upload_id)
             if request.method == "DELETE":
                 ok = store.delete_item("upload", upload_id)
+                store.delete_upload_parts(upload_id)
+                for legacy_type in ("upload.part", "upload_part"):
+                    for legacy in store.list_items(legacy_type, parent_id=upload_id):
+                        store.delete_item(legacy_type, legacy["id"])
                 return jsonify({"id": upload_id, "object": "upload.deleted", "deleted": ok})
         if len(parts) >= 2 and parts[1] == "parts":
             existing_upload = store.get_item("upload", upload_id)
@@ -1850,7 +1856,16 @@ def register_routes(app, settings):
                     _normalize_upload_part_object(_strip_upload_part_payload(item))
                     for item in (file_parts + legacy_parts + new_parts)
                 ]
-                return _list_response(parts_items)
+                parts_items = sorted(parts_items, key=lambda item: item.get("created_at", 0))
+                return jsonify(
+                    {
+                        "object": "list",
+                        "data": parts_items,
+                        "first_id": parts_items[0]["id"] if parts_items else None,
+                        "last_id": parts_items[-1]["id"] if parts_items else None,
+                        "has_more": False,
+                    }
+                )
             if request.method == "POST":
                 data = request.get_data() or b""
                 part = store.create_upload_part(upload_id, data)
@@ -1862,18 +1877,25 @@ def register_routes(app, settings):
             existing = store.get_item("upload", upload_id)
             if not existing:
                 return _not_found("upload", upload_id)
-            parts_list = store.list_upload_parts(upload_id)
-            if not parts_list:
-                parts_list = store.list_items("upload.part", parent_id=upload_id)
-            if not parts_list:
-                parts_list = store.list_items("upload_part", parent_id=upload_id)
+            parts_list = (
+                store.list_upload_parts(upload_id)
+                + store.list_items("upload.part", parent_id=upload_id)
+                + store.list_items("upload_part", parent_id=upload_id)
+            )
             parts_list = sorted(parts_list, key=lambda item: item.get("created_at", 0))
             filename = existing.get("filename") or "upload"
             mime_type = existing.get("mime_type") or "application/octet-stream"
+            seen_hashes = set()
+
             def iter_parts():
                 for part in parts_list:
                     path = part.get("path")
+                    part_hash = part.get("sha256")
                     if path and os.path.exists(path):
+                        if part_hash:
+                            if part_hash in seen_hashes:
+                                continue
+                            seen_hashes.add(part_hash)
                         with open(path, "rb") as f:
                             while True:
                                 chunk = f.read(1024 * 1024)
@@ -1884,7 +1906,12 @@ def register_routes(app, settings):
                         data_b64 = part.get("data_b64")
                         if data_b64:
                             try:
-                                yield base64.b64decode(data_b64)
+                                data = base64.b64decode(data_b64)
+                                digest = hashlib.sha256(data).hexdigest()
+                                if digest in seen_hashes:
+                                    continue
+                                seen_hashes.add(digest)
+                                yield data
                             except Exception:
                                 continue
 
