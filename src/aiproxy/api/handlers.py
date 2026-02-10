@@ -70,6 +70,36 @@ def _accepts_sse(req):
     return "text/event-stream" in accept
 
 
+def _is_legacy_chat_style(req, payload_dict: dict | None = None) -> bool:
+    header_style = (req.headers.get("x-openai-style") or req.headers.get("x-openai-compat") or "").lower()
+    if header_style in {"old", "legacy", "compat", "text", "text_completion"}:
+        return True
+    if header_style in {"new", "chat", "v1"}:
+        return False
+    query_style = (req.args.get("openai_style") or req.args.get("openai_compat") or "").lower()
+    if query_style in {"old", "legacy", "compat", "text", "text_completion"}:
+        return True
+    if query_style in {"new", "chat", "v1"}:
+        return False
+    if isinstance(payload_dict, dict):
+        raw_style = payload_dict.get("oldApiStyle")
+        if raw_style is None:
+            raw_style = payload_dict.get("old_api_style")
+        if raw_style is None:
+            raw_style = payload_dict.get("api_style")
+        if raw_style is None:
+            raw_style = payload_dict.get("openai_style")
+        if isinstance(raw_style, bool):
+            return raw_style
+        if isinstance(raw_style, str):
+            normalized = raw_style.strip().lower()
+            if normalized in {"old", "legacy", "compat", "text", "text_completion", "true", "1", "yes"}:
+                return True
+            if normalized in {"new", "chat", "v1", "false", "0", "no"}:
+                return False
+    return False
+
+
 def _ordered_payload(payload: dict, key_order: list[str]) -> dict:
     ordered = {key: payload[key] for key in key_order if key in payload}
     for key, value in payload.items():
@@ -783,11 +813,69 @@ def register_routes(app, settings):
             except Exception as e:
                 return error_response(str(e), 500, "internal_error")
 
-            choices = getattr(response_obj, "choices", None) or []
-            first_choice = choices[0] if choices else None
-            message = getattr(first_choice, "message", None) if first_choice else None
-            content = getattr(message, "content", None) if message else ""
-            finish_reason = getattr(first_choice, "finish_reason", None) if first_choice else None
+            raw_choices = getattr(response_obj, "choices", None) or []
+            choices_payload = []
+            content = ""
+            finish_reason = None
+            for idx, choice in enumerate(raw_choices):
+                choice_dict = None
+                if hasattr(choice, "model_dump"):
+                    choice_dict = choice.model_dump(exclude_none=True)
+                elif hasattr(choice, "dict"):
+                    choice_dict = choice.dict()
+                elif isinstance(choice, dict):
+                    choice_dict = dict(choice)
+                if choice_dict is None:
+                    continue
+                choice_index = choice_dict.get("index", idx)
+                choice_finish = choice_dict.get("finish_reason")
+                choice_logprobs = choice_dict.get("logprobs")
+                message = choice_dict.get("message")
+                if hasattr(message, "model_dump"):
+                    message = message.model_dump(exclude_none=True)
+                elif hasattr(message, "dict"):
+                    message = message.dict()
+                text_value = None
+                if isinstance(message, dict):
+                    text_value = message.get("content")
+                else:
+                    text_value = getattr(message, "content", None)
+                if text_value is None:
+                    text_value = choice_dict.get("text") or ""
+                if not content and isinstance(text_value, str):
+                    content = text_value
+                if finish_reason is None:
+                    finish_reason = choice_finish
+                choice_payload = {
+                    "index": choice_index,
+                    "text": text_value or "",
+                    "finish_reason": choice_finish or "stop",
+                }
+                if choice_logprobs is not None:
+                    choice_payload["logprobs"] = choice_logprobs
+                choices_payload.append(
+                    _ordered_payload(
+                        choice_payload,
+                        ["index", "text", "finish_reason", "logprobs"],
+                    )
+                )
+            if not choices_payload:
+                fallback_count = 1
+                raw_n = data.get("n") if isinstance(data, dict) else None
+                if isinstance(raw_n, int) and raw_n > 1:
+                    fallback_count = raw_n
+                choices_payload = [
+                    _ordered_payload(
+                        {
+                            "index": idx,
+                            "text": content or "",
+                            "finish_reason": finish_reason or "stop",
+                            "logprobs": None,
+                        },
+                        ["index", "text", "finish_reason", "logprobs"],
+                    )
+                    for idx in range(fallback_count)
+                ]
             usage = _extract_usage_dict(getattr(response_obj, "usage", None))
             if usage is None:
                 prompt_tokens = count_text_tokens(prompt_text, model=resolved["model"])
@@ -797,23 +885,19 @@ def register_routes(app, settings):
                     "completion_tokens": completion_tokens,
                     "total_tokens": prompt_tokens + completion_tokens,
                 }
-            return jsonify(
-                {
-                    "id": _make_response_id("cmpl"),
-                    "object": "text_completion",
-                    "created": int(time.time()),
-                    "model": resolved["id"],
-                    "choices": [
-                        {
-                            "index": 0,
-                            "text": content,
-                            "finish_reason": finish_reason or "stop",
-                            "logprobs": None,
-                        }
-                    ],
-                    "usage": usage,
-                }
+            response_payload = {
+                "id": getattr(response_obj, "id", None) or _make_response_id("cmpl"),
+                "object": "text_completion",
+                "created": getattr(response_obj, "created", None) or int(time.time()),
+                "model": resolved["id"],
+                "choices": choices_payload,
+                "usage": usage,
+            }
+            response_payload = _ordered_payload(
+                response_payload,
+                ["id", "object", "created", "model", "choices", "usage"],
             )
+            return jsonify(response_payload)
 
         except Exception as e:
             log_event(40, "completions_error", error=str(e), request_id=g.request_id)
@@ -836,6 +920,7 @@ def register_routes(app, settings):
             stream = payload.stream
             if stream and not _accepts_sse(request):
                 stream = False
+            legacy_style = _is_legacy_chat_style(request, data)
             params = extract_chat_params(payload_dict)
             resolved, error_message = _resolve_request_model(payload_dict)
             if error_message:
@@ -883,7 +968,7 @@ def register_routes(app, settings):
 
             client = _build_client(settings, resolved["base_url"], resolved["api_key"])
             if stream:
-                response_id = _make_response_id("chatcmpl")
+                response_id = _make_response_id("cmpl" if legacy_style else "chatcmpl")
                 created = int(time.time())
                 return Response(
                     stream_with_context(
@@ -894,6 +979,7 @@ def register_routes(app, settings):
                             resolved["id"],
                             response_id,
                             created,
+                            legacy=legacy_style,
                             **params,
                         )
                     ),
@@ -920,80 +1006,194 @@ def register_routes(app, settings):
                 response_payload = response_obj.dict()
             elif isinstance(response_obj, dict):
                 response_payload = response_obj
-            if response_payload:
-                response_payload["model"] = resolved["id"]
-                if "id" not in response_payload:
-                    response_payload["id"] = _make_response_id("chatcmpl")
-                if "object" not in response_payload:
-                    response_payload["object"] = "chat.completion"
-                if "created" not in response_payload:
-                    response_payload["created"] = int(time.time())
-            choices = (response_payload or {}).get("choices") if response_payload else (getattr(response_obj, "choices", None) or [])
-            first_choice = choices[0] if choices else None
-            message = (first_choice or {}).get("message") if isinstance(first_choice, dict) else getattr(first_choice, "message", None)
-            content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None) if message else ""
-            finish_reason = (first_choice or {}).get("finish_reason") if isinstance(first_choice, dict) else getattr(first_choice, "finish_reason", None)
-            usage = _extract_usage_dict((response_payload or {}).get("usage") if response_payload else getattr(response_obj, "usage", None))
+            choices_raw = []
+            if isinstance(response_payload, dict):
+                raw_choices = response_payload.get("choices")
+                if isinstance(raw_choices, list):
+                    choices_raw = raw_choices
+            if not choices_raw:
+                choices_raw = getattr(response_obj, "choices", None) or []
+
+            content = ""
+            finish_reason = None
+            if choices_raw:
+                first_choice = choices_raw[0]
+                if hasattr(first_choice, "model_dump"):
+                    first_choice = first_choice.model_dump(exclude_none=True)
+                elif hasattr(first_choice, "dict"):
+                    first_choice = first_choice.dict()
+                message = None
+                if isinstance(first_choice, dict):
+                    message = first_choice.get("message")
+                    finish_reason = first_choice.get("finish_reason")
+                    if message is None:
+                        content = first_choice.get("text") or ""
+                else:
+                    message = getattr(first_choice, "message", None)
+                    finish_reason = getattr(first_choice, "finish_reason", None)
+                if message is not None:
+                    if hasattr(message, "model_dump"):
+                        message = message.model_dump(exclude_none=True)
+                    elif hasattr(message, "dict"):
+                        message = message.dict()
+                    if isinstance(message, dict):
+                        content = message.get("content") or content
+                    else:
+                        content = getattr(message, "content", None) or content
+
+            usage = _extract_usage_dict(
+                response_payload.get("usage") if isinstance(response_payload, dict) else getattr(response_obj, "usage", None)
+            )
             if usage is None:
                 prompt_tokens = count_messages_tokens(messages, model=resolved["model"])
                 completion_tokens = count_text_tokens(content, model=resolved["model"])
-                usage = {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens,
-                    "prompt_tokens_details": {"cached_tokens": 0, "audio_tokens": 0},
-                    "completion_tokens_details": {
-                        "reasoning_tokens": 0,
-                        "audio_tokens": 0,
-                        "accepted_prediction_tokens": 0,
-                        "rejected_prediction_tokens": 0,
-                    },
-                }
-            legacy = request.path in ("/chat/completions",)
-            if legacy:
-                return jsonify(
-                    {
-                        "id": _make_response_id("cmpl"),
-                        "object": "text_completion",
-                        "created": int(time.time()),
-                        "model": resolved["id"],
-                        "choices": [
-                            {
-                                "index": 0,
-                                "text": content,
-                                "finish_reason": finish_reason or "stop",
-                                "logprobs": None,
-                            }
-                        ],
-                        "usage": usage,
+                if legacy_style:
+                    usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
                     }
-                )
-            if response_payload:
-                response_payload["usage"] = response_payload.get("usage") or usage
-                response_payload = _ordered_payload(
-                    response_payload,
-                    ["id", "object", "created", "model", "choices", "usage"],
-                )
-                return jsonify(response_payload)
-            return jsonify(
-                {
-                    "id": _make_response_id("chatcmpl"),
-                    "object": "chat.completion",
-                    "created": int(time.time()),
-                    "model": resolved["id"],
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": "assistant",
-                                "content": content,
+                else:
+                    usage = {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                        "prompt_tokens_details": {"cached_tokens": 0, "audio_tokens": 0},
+                        "completion_tokens_details": {
+                            "reasoning_tokens": 0,
+                            "audio_tokens": 0,
+                            "accepted_prediction_tokens": 0,
+                            "rejected_prediction_tokens": 0,
+                        },
+                    }
+
+            choices = []
+            for idx, choice in enumerate(choices_raw):
+                choice_dict = None
+                if hasattr(choice, "model_dump"):
+                    choice_dict = choice.model_dump(exclude_none=True)
+                elif hasattr(choice, "dict"):
+                    choice_dict = choice.dict()
+                elif isinstance(choice, dict):
+                    choice_dict = dict(choice)
+                if choice_dict is None:
+                    continue
+                choice_index = choice_dict.get("index", idx)
+                choice_finish = choice_dict.get("finish_reason", finish_reason)
+                choice_logprobs = choice_dict.get("logprobs")
+                if legacy_style:
+                    text_value = choice_dict.get("text")
+                    if text_value is None:
+                        message = choice_dict.get("message")
+                        if hasattr(message, "model_dump"):
+                            message = message.model_dump(exclude_none=True)
+                        elif hasattr(message, "dict"):
+                            message = message.dict()
+                        if isinstance(message, dict):
+                            text_value = message.get("content")
+                    if choice_finish == "tool_calls":
+                        choice_finish = "stop"
+                    choice_payload = {
+                        "index": choice_index,
+                        "text": text_value or "",
+                        "finish_reason": choice_finish or "stop",
+                    }
+                    if choice_logprobs is not None:
+                        choice_payload["logprobs"] = choice_logprobs
+                    choices.append(
+                        _ordered_payload(
+                            choice_payload,
+                            ["index", "text", "finish_reason", "logprobs"],
+                        )
+                    )
+                else:
+                    message = choice_dict.get("message")
+                    if hasattr(message, "model_dump"):
+                        message = message.model_dump(exclude_none=True)
+                    elif hasattr(message, "dict"):
+                        message = message.dict()
+                    if not isinstance(message, dict):
+                        text_value = choice_dict.get("text") or ""
+                        message = {"role": "assistant", "content": text_value}
+                    elif "role" not in message:
+                        message["role"] = "assistant"
+                    if isinstance(message, dict):
+                        message = _ordered_payload(
+                            message,
+                            ["role", "content", "tool_calls", "function_call", "name"],
+                        )
+                    choice_payload = {
+                        "index": choice_index,
+                        "message": message,
+                        "finish_reason": choice_finish or "stop",
+                    }
+                    if choice_logprobs is not None:
+                        choice_payload["logprobs"] = choice_logprobs
+                    choices.append(
+                        _ordered_payload(
+                            choice_payload,
+                            ["index", "message", "finish_reason", "logprobs"],
+                        )
+                    )
+
+            if not choices:
+                fallback_count = 1
+                raw_n = payload_dict.get("n")
+                if not isinstance(raw_n, int):
+                    raw_n = data.get("n") if isinstance(data, dict) else None
+                if isinstance(raw_n, int) and raw_n > 1:
+                    fallback_count = raw_n
+                if legacy_style:
+                    choices = [
+                        _ordered_payload(
+                            {
+                                "index": idx,
+                                "text": content or "",
+                                "finish_reason": finish_reason or "stop",
                             },
-                            "finish_reason": finish_reason or "stop",
-                        }
-                    ],
-                    "usage": usage,
-                }
+                            ["index", "text", "finish_reason"],
+                        )
+                        for idx in range(fallback_count)
+                    ]
+                else:
+                    choices = [
+                        _ordered_payload(
+                            {
+                                "index": idx,
+                                "message": _ordered_payload(
+                                    {"role": "assistant", "content": content or ""},
+                                    ["role", "content"],
+                                ),
+                                "finish_reason": finish_reason or "stop",
+                            },
+                            ["index", "message", "finish_reason"],
+                        )
+                        for idx in range(fallback_count)
+                    ]
+
+            response_id = None
+            response_created = None
+            if isinstance(response_payload, dict):
+                response_id = response_payload.get("id")
+                response_created = response_payload.get("created")
+            if response_id is None:
+                response_id = getattr(response_obj, "id", None)
+            if response_created is None:
+                response_created = getattr(response_obj, "created", None)
+
+            response_payload = {
+                "id": response_id or _make_response_id("cmpl" if legacy_style else "chatcmpl"),
+                "object": "text_completion" if legacy_style else "chat.completion",
+                "created": response_created or int(time.time()),
+                "model": resolved["id"],
+                "choices": choices,
+                "usage": usage,
+            }
+            response_payload = _ordered_payload(
+                response_payload,
+                ["id", "object", "created", "model", "choices", "usage"],
             )
+            return jsonify(response_payload)
 
         except Exception as e:
             log_event(40, "chat_completions_error", error=str(e), request_id=g.request_id)

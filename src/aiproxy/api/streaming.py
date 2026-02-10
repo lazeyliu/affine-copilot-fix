@@ -27,8 +27,23 @@ def _dump_delta(delta):
     return {}
 
 
-def _stream_error_payload(message, response_id, created, response_model, error_type):
+def _stream_error_payload(message, response_id, created, response_model, error_type, legacy: bool = False):
     """Build a stream-safe error chunk with choices for client compatibility."""
+    if legacy:
+        return {
+            "id": response_id,
+            "object": "text_completion.chunk",
+            "created": created,
+            "model": response_model,
+            "choices": [
+                {
+                    "delta": "",
+                    "index": 0,
+                    "finish_reason": "stop",
+                }
+            ],
+            "error": {"message": message, "type": error_type},
+        }
     return {
         "id": response_id,
         "object": "chat.completion.chunk",
@@ -71,15 +86,28 @@ def _extract_tool_delta_text(delta_payload: dict) -> str:
     return "".join(text_parts)
 
 
-def stream_chat_sse(client, model, messages, response_model, response_id, created, **kwargs):
+def stream_chat_sse(
+    client,
+    model,
+    messages,
+    response_model,
+    response_id,
+    created,
+    legacy: bool = False,
+    **kwargs,
+):
     """Stream chat.completions and emit SSE in OpenAI format."""
     try:
         stream = stream_chat_completion(client, model, messages, **kwargs)
         output_text = ""
-        output_tool_text = ""
+        output_tool_text = "" if not legacy else None
         sent_usage = False
+        seen_indices = set()
+        finished_indices = set()
         for chunk in stream:
-            choice = _get_first_choice(chunk)
+            choices = getattr(chunk, "choices", None)
+            if not isinstance(choices, list):
+                choices = []
             usage = getattr(chunk, "usage", None)
             usage_payload = None
             if usage is not None:
@@ -89,11 +117,11 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
                     usage_payload = usage.dict()
                 elif isinstance(usage, dict):
                     usage_payload = usage
-            if not choice:
+            if not choices:
                 if usage_payload is not None:
                     data = {
                         "id": response_id,
-                        "object": "chat.completion.chunk",
+                        "object": "text_completion.chunk" if legacy else "chat.completion.chunk",
                         "created": created,
                         "model": response_model,
                         "choices": [],
@@ -102,35 +130,84 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
                     yield f"data: {json.dumps(data)}\n\n"
                     sent_usage = True
                 continue
-            delta_payload = _dump_delta(getattr(choice, "delta", None))
-            finish_reason = getattr(choice, "finish_reason", None)
-            if not delta_payload and finish_reason is None:
+
+            choices_payload = []
+            for idx, choice in enumerate(choices):
+                delta_payload = _dump_delta(getattr(choice, "delta", None))
+                finish_reason = getattr(choice, "finish_reason", None)
+                if not delta_payload and finish_reason is None:
+                    continue
+                choice_index = getattr(choice, "index", idx)
+                if choice_index is None:
+                    choice_index = idx
+                seen_indices.add(choice_index)
+                if finish_reason is not None:
+                    finished_indices.add(choice_index)
+                if legacy:
+                    delta_text = delta_payload.get("content")
+                    if not isinstance(delta_text, str):
+                        delta_text = ""
+                    output_text += delta_text
+                    if finish_reason == "tool_calls":
+                        finish_reason = "stop"
+                    choices_payload.append(
+                        {
+                            "delta": delta_text,
+                            "index": choice_index,
+                            "finish_reason": finish_reason,
+                        }
+                    )
+                else:
+                    delta_content = delta_payload.get("content")
+                    if isinstance(delta_content, str):
+                        output_text += delta_content
+                    output_tool_text += _extract_tool_delta_text(delta_payload)
+                    choices_payload.append(
+                        {
+                            "delta": delta_payload,
+                            "index": choice_index,
+                            "finish_reason": finish_reason,
+                        }
+                    )
+            if not choices_payload:
                 continue
-            delta_content = delta_payload.get("content")
-            if isinstance(delta_content, str):
-                output_text += delta_content
-            output_tool_text += _extract_tool_delta_text(delta_payload)
             data = {
                 "id": response_id,
-                "object": "chat.completion.chunk",
+                "object": "text_completion.chunk" if legacy else "chat.completion.chunk",
                 "created": created,
                 "model": response_model,
-                "choices": [
-                    {
-                        "delta": delta_payload,
-                        "index": getattr(choice, "index", 0),
-                        "finish_reason": finish_reason,
-                    }
-                ],
+                "choices": choices_payload,
             }
             if usage_payload is not None:
                 data["usage"] = usage_payload
                 sent_usage = True
             yield f"data: {json.dumps(data)}\n\n"
 
+        missing_finish = seen_indices - finished_indices
+        if missing_finish:
+            final_choices = [
+                {
+                    "delta": "" if legacy else {},
+                    "index": idx,
+                    "finish_reason": "stop",
+                }
+                for idx in sorted(missing_finish)
+            ]
+            final_chunk = {
+                "id": response_id,
+                "object": "text_completion.chunk" if legacy else "chat.completion.chunk",
+                "created": created,
+                "model": response_model,
+                "choices": final_choices,
+            }
+            yield f"data: {json.dumps(final_chunk)}\n\n"
+
         if not sent_usage:
             prompt_tokens = count_messages_tokens(messages, model=response_model)
-            completion_tokens = count_text_tokens(output_text + output_tool_text, model=response_model)
+            completion_source = output_text
+            if output_tool_text is not None:
+                completion_source += output_tool_text
+            completion_tokens = count_text_tokens(completion_source, model=response_model)
             usage_payload = {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
@@ -138,7 +215,7 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
             }
             data = {
                 "id": response_id,
-                "object": "chat.completion.chunk",
+                "object": "text_completion.chunk" if legacy else "chat.completion.chunk",
                 "created": created,
                 "model": response_model,
                 "choices": [],
@@ -155,6 +232,7 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
             created,
             response_model,
             "api_connection_error",
+            legacy=legacy,
         )
         yield f"data: {json.dumps(error_payload)}\n\n"
         yield "data: [DONE]\n\n"
@@ -165,6 +243,7 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
             created,
             response_model,
             "rate_limit_error",
+            legacy=legacy,
         )
         yield f"data: {json.dumps(error_payload)}\n\n"
         yield "data: [DONE]\n\n"
@@ -175,6 +254,7 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
             created,
             response_model,
             "api_error",
+            legacy=legacy,
         )
         yield f"data: {json.dumps(error_payload)}\n\n"
         yield "data: [DONE]\n\n"
@@ -185,6 +265,7 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
             created,
             response_model,
             "internal_error",
+            legacy=legacy,
         )
         yield f"data: {json.dumps(error_payload)}\n\n"
 
