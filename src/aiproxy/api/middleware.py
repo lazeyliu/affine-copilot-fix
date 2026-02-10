@@ -121,31 +121,41 @@ def register_middlewares(app, settings, rate_limiter):
             latency_ms = int((time.time() - g.request_start) * 1000)
         if request.path == "/healthz":
             return response
-        if should_log_request(response.status_code):
-            log_event(
-                20,
-                "request",
-                request_id=getattr(g, "request_id", ""),
-                method=request.method,
-                path=request.path,
-                status=response.status_code,
-                latency_ms=latency_ms,
-                model=getattr(g, "resolved_model", None),
-                provider=getattr(g, "resolved_provider", None),
-                provider_url=getattr(g, "resolved_provider_url", None),
-                upstream_url=getattr(g, "upstream_url", None),
-                client_ip=get_client_ip(),
-            )
-            log_cfg = get_logging_config()
-            if log_cfg.get("include_headers") or log_cfg.get("include_body"):
-                detail = {}
-                if log_cfg.get("include_headers"):
-                    detail["headers"] = redact_headers(dict(request.headers), log_cfg.get("redact_headers", []))
-                if log_cfg.get("include_body") and request.is_json:
-                    body = request.get_json(silent=True)
-                    detail["body"] = redact_payload(body, log_cfg.get("redact_keys", []))
-                if detail:
-                    log_event(20, "request_detail", request_id=getattr(g, "request_id", ""), **detail)
+        log_event(
+            20,
+            "request",
+            request_id=getattr(g, "request_id", ""),
+            method=request.method,
+            path=request.path,
+            status=response.status_code,
+            latency_ms=latency_ms,
+            model=getattr(g, "resolved_model", None),
+            provider=getattr(g, "resolved_provider", None),
+            provider_url=getattr(g, "resolved_provider_url", None),
+            upstream_url=getattr(g, "upstream_url", None),
+            client_ip=get_client_ip(),
+        )
+        log_cfg = get_logging_config()
+        if log_cfg.get("include_headers") or log_cfg.get("include_body"):
+            detail = {}
+            if log_cfg.get("include_headers"):
+                detail["headers"] = redact_headers(dict(request.headers), log_cfg.get("redact_headers", []))
+            if log_cfg.get("include_body") and request.is_json:
+                body = request.get_json(silent=True)
+                detail["body"] = redact_payload(body, log_cfg.get("redact_keys", []))
+            if log_cfg.get("include_body"):
+                try:
+                    response_body = None
+                    if isinstance(response.response, list):
+                        response_body = b"".join(response.response)
+                    elif hasattr(response, "get_data"):
+                        response_body = response.get_data()
+                    if response_body is not None:
+                        detail["response"] = response_body.decode("utf-8", errors="replace")
+                except Exception:
+                    detail["response"] = None
+            if detail:
+                log_event(20, "request_detail", request_id=getattr(g, "request_id", ""), **detail)
         return response
 
     @app.route('/', defaults={'path': ''}, methods=['OPTIONS'])

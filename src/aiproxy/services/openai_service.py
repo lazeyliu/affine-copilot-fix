@@ -16,15 +16,9 @@ def create_chat_completion(
     model: str,
     messages: List[dict],
     **kwargs: Any,
-) -> str:
-    """Call chat.completions and return the assistant content."""
-    response = client.chat.completions.create(model=model, messages=messages, **kwargs)
-    choices = getattr(response, "choices", None)
-    if not choices:
-        raise ValueError("Upstream returned no choices")
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", None)
-    return content or ""
+) -> Any:
+    """Call chat.completions and return the full response."""
+    return client.chat.completions.create(model=model, messages=messages, **kwargs)
 
 
 def create_response(client: openai.OpenAI, **kwargs: Any) -> Any:

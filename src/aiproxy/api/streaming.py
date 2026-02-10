@@ -5,6 +5,7 @@ import openai
 
 from ..services.openai_service import stream_chat_completion
 from ..utils.logging import log_event
+from ..utils.token_count import count_messages_tokens, count_text_tokens
 
 
 def _get_first_choice(chunk):
@@ -48,14 +49,39 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
     """Stream chat.completions and emit SSE in OpenAI format."""
     try:
         stream = stream_chat_completion(client, model, messages, **kwargs)
+        output_text = ""
+        sent_usage = False
         for chunk in stream:
             choice = _get_first_choice(chunk)
+            usage = getattr(chunk, "usage", None)
+            usage_payload = None
+            if usage is not None:
+                if hasattr(usage, "model_dump"):
+                    usage_payload = usage.model_dump()
+                elif hasattr(usage, "dict"):
+                    usage_payload = usage.dict()
+                elif isinstance(usage, dict):
+                    usage_payload = usage
             if not choice:
+                if usage_payload is not None:
+                    data = {
+                        "id": response_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": response_model,
+                        "choices": [],
+                        "usage": usage_payload,
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+                    sent_usage = True
                 continue
             delta_payload = _dump_delta(getattr(choice, "delta", None))
             finish_reason = getattr(choice, "finish_reason", None)
             if not delta_payload and finish_reason is None:
                 continue
+            delta_content = delta_payload.get("content")
+            if isinstance(delta_content, str):
+                output_text += delta_content
             data = {
                 "id": response_id,
                 "object": "chat.completion.chunk",
@@ -68,6 +94,27 @@ def stream_chat_sse(client, model, messages, response_model, response_id, create
                         "finish_reason": finish_reason,
                     }
                 ],
+            }
+            if usage_payload is not None:
+                data["usage"] = usage_payload
+                sent_usage = True
+            yield f"data: {json.dumps(data)}\n\n"
+
+        if not sent_usage:
+            prompt_tokens = count_messages_tokens(messages, model=response_model)
+            completion_tokens = count_text_tokens(output_text, model=response_model)
+            usage_payload = {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            }
+            data = {
+                "id": response_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": response_model,
+                "choices": [],
+                "usage": usage_payload,
             }
             yield f"data: {json.dumps(data)}\n\n"
 
@@ -199,13 +246,16 @@ def stream_responses_sse_from_chat(
     try:
         stream = stream_chat_completion(client, model, messages, **kwargs)
         output_text = ""
+        output_item_id = f"msg_{int(time.time() * 1000)}"
+        sequence_number = 0
         created_event = {
             "type": "response.created",
             "response": {
                 "id": response_id,
                 "object": "response",
-                "created": created,
+                "created_at": created,
                 "model": response_model,
+                "status": "in_progress",
                 "output": [],
             },
         }
@@ -222,37 +272,54 @@ def stream_responses_sse_from_chat(
             output_text += delta
             delta_event = {
                 "type": "response.output_text.delta",
+                "response_id": response_id,
+                "item_id": output_item_id,
                 "delta": delta,
                 "output_index": 0,
                 "content_index": 0,
+                "sequence_number": sequence_number,
             }
+            sequence_number += 1
             yield "event: response.output_text.delta\n"
             yield f"data: {json.dumps(delta_event)}\n\n"
 
         done_event = {
             "type": "response.output_text.done",
+            "response_id": response_id,
+            "item_id": output_item_id,
             "text": output_text,
             "output_index": 0,
             "content_index": 0,
+            "sequence_number": sequence_number,
         }
+        sequence_number += 1
         yield "event: response.output_text.done\n"
         yield f"data: {json.dumps(done_event)}\n\n"
 
+        input_tokens = count_messages_tokens(messages, model=response_model)
+        output_tokens = count_text_tokens(output_text, model=response_model)
         completed_event = {
             "type": "response.completed",
             "response": {
                 "id": response_id,
                 "object": "response",
-                "created": created,
+                "created_at": created,
                 "model": response_model,
+                "status": "completed",
                 "output": [
                     {
-                        "id": f"msg-{int(time.time() * 1000)}",
+                        "id": output_item_id,
                         "type": "message",
                         "role": "assistant",
-                        "content": [{"type": "output_text", "text": output_text}],
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": output_text, "annotations": []}],
                     }
                 ],
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": input_tokens + output_tokens,
+                },
             },
         }
         yield "event: response.completed\n"
