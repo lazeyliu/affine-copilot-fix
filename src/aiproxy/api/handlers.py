@@ -196,6 +196,14 @@ def _model_dump(obj):
     return obj
 
 
+def _strip_penalties(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return payload
+    for key in ("frequencyPenalty", "presencePenalty", "frequency_penalty", "presence_penalty"):
+        payload.pop(key, None)
+    return payload
+
+
 def register_routes(app, settings):
     """Register Flask routes on the app."""
 
@@ -208,6 +216,7 @@ def register_routes(app, settings):
     def completions():
         try:
             data = request.get_json(silent=True) or {}
+            _strip_penalties(data)
             if "model" not in data and "modelId" in data:
                 data["model"] = data["modelId"]
             resolved, error_message = _resolve_request_model(data)
@@ -249,6 +258,7 @@ def register_routes(app, settings):
     def chat_completions():
         try:
             data = request.get_json(silent=True) or {}
+            _strip_penalties(data)
             if "model" not in data and "modelId" in data:
                 data["model"] = data["modelId"]
             resolved, error_message = _resolve_request_model(data)
@@ -292,6 +302,7 @@ def register_routes(app, settings):
     def responses():
         try:
             data = request.get_json(silent=True) or {}
+            _strip_penalties(data)
             if "model" not in data and "modelId" in data:
                 data["model"] = data["modelId"]
             resolved, error_message = _resolve_request_model(data)
